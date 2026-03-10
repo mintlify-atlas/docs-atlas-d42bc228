@@ -1,0 +1,437 @@
+---
+title: Metrics and Telemetry
+description: Monitor performance metrics, telemetry, and observability data from Bitwarden Server
+---
+
+Bitwarden Server provides various metrics and telemetry capabilities for monitoring system health, performance, and usage patterns. This guide covers the built-in metrics systems and integration with observability platforms.
+
+## Built-in Metrics
+
+### Security Task Metrics
+
+Bitwarden tracks security task completion metrics for organizations:
+
+**Endpoint:**
+```
+GET /api/organizations/{organizationId}/security-tasks/metrics
+```
+
+**Response:**
+```json
+{
+  "completedTasks": 15,
+  "totalTasks": 20
+}
+```
+
+**Implementation:** `src/Core/Vault/Queries/GetTaskMetricsForOrganizationQuery.cs`
+
+### Organization Report Metrics
+
+Comprehensive reporting metrics for organization security posture:
+
+**Available Metrics:**
+- Application count and risk assessment
+- Member count and risk assessment  
+- Password count and risk assessment
+- Critical application/member/password tracking
+
+**Data Structure:**
+```csharp
+public class OrganizationReportMetricsData
+{
+    public int ApplicationCount { get; set; }
+    public int ApplicationAtRiskCount { get; set; }
+    public int CriticalApplicationCount { get; set; }
+    public int CriticalApplicationAtRiskCount { get; set; }
+    
+    public int MemberCount { get; set; }
+    public int MemberAtRiskCount { get; set; }
+    public int CriticalMemberCount { get; set; }
+    public int CriticalMemberAtRiskCount { get; set; }
+    
+    public int PasswordCount { get; set; }
+    public int PasswordAtRiskCount { get; set; }
+    public int CriticalPasswordCount { get; set; }
+    public int CriticalPasswordAtRiskCount { get; set; }
+}
+```
+
+**Implementation:** `src/Core/Dirt/Models/Data/OrganizationReportMetricsData.cs`
+
+## Performance Metrics
+
+### Rate Limiting Metrics
+
+Bitwarden implements distributed rate limiting with configurable thresholds:
+
+```json
+{
+  "distributedIpRateLimiting": {
+    "enabled": true,
+    "maxRedisTimeoutsThreshold": 10,
+    "slidingWindowSeconds": 120
+  }
+}
+```
+
+**Tracked Metrics:**
+- Request counts per endpoint
+- Rate limit violations
+- Redis timeout occurrences
+- Client IP patterns
+
+**Configuration:** `src/Api/appsettings.json:72`
+
+### Database Performance
+
+Monitor database query performance through health checks and connection metrics:
+
+**SQL Server Connection:**
+```json
+{
+  "sqlServer": {
+    "connectionString": "Server=sql;Database=vault;..."
+  }
+}
+```
+
+**Health Check Integration:**
+- Connection pool utilization
+- Query execution times
+- Failed connection attempts
+
+See `src/Api/Utilities/ServiceCollectionExtensions.cs:86` for implementation.
+
+## Application Metrics
+
+### Service Startup Metrics
+
+Each service logs startup completion:
+
+```
+INFO: Api started.
+```
+
+**Implementation:** `src/Api/Startup.cs:364`
+
+### Request Metrics
+
+The request logging middleware tracks:
+- Request count by endpoint
+- Response time percentiles
+- HTTP status code distribution
+- Error rates
+
+**Middleware:** `src/SharedWeb/Utilities/RequestLoggingMiddleware.cs`
+
+## Event Metrics
+
+Bitwarden's event system provides comprehensive audit and usage metrics:
+
+### Event Types Tracked
+
+- User authentication events
+- Cipher access and modifications
+- Collection operations
+- Organization changes
+- Security task updates
+- Service account activity
+
+### Event Storage Options
+
+**Azure Queue Storage:**
+```json
+{
+  "events": {
+    "connectionString": "DefaultEndpointsProtocol=https;..."
+  }
+}
+```
+
+**Azure Service Bus:**
+```json
+{
+  "eventLogging": {
+    "azureServiceBus": {
+      "connectionString": "Endpoint=sb://...",
+      "eventTopicName": "events",
+      "integrationTopicName": "integrations"
+    }
+  }
+}
+```
+
+**RabbitMQ:**
+```json
+{
+  "eventLogging": {
+    "rabbitMq": {
+      "hostName": "rabbitmq",
+      "username": "bitwarden",
+      "password": "SECRET",
+      "eventExchangeName": "events",
+      "integrationExchangeName": "integrations"
+    }
+  }
+}
+```
+
+**Implementation:** `src/Core/Dirt/Services/Implementations/EventService.cs`
+
+## Observability Integration
+
+### Prometheus
+
+While Bitwarden doesn't natively export Prometheus metrics, you can expose them using middleware:
+
+**Example Integration:**
+
+1. Add the Prometheus ASP.NET Core package:
+```bash
+dotnet add package prometheus-net.AspNetCore
+```
+
+2. Configure in Startup:
+```csharp
+using Prometheus;
+
+public void Configure(IApplicationBuilder app)
+{
+    app.UseHttpMetrics();
+    
+    app.UseEndpoints(endpoints =>
+    {
+        endpoints.MapMetrics();
+    });
+}
+```
+
+3. Scrape configuration:
+```yaml
+scrape_configs:
+  - job_name: 'bitwarden'
+    static_configs:
+      - targets: ['api:5000', 'identity:5000']
+    metrics_path: '/metrics'
+```
+
+### Application Insights
+
+For Azure deployments, integrate with Application Insights:
+
+```json
+{
+  "ApplicationInsights": {
+    "InstrumentationKey": "your-key-here",
+    "EnableAdaptiveSampling": true,
+    "EnablePerformanceCounterCollectionModule": true
+  }
+}
+```
+
+### OpenTelemetry
+
+Modern observability using OpenTelemetry:
+
+```csharp
+services.AddOpenTelemetryTracing(builder =>
+{
+    builder
+        .SetResourceBuilder(ResourceBuilder.CreateDefault()
+            .AddService("bitwarden-api"))
+        .AddAspNetCoreInstrumentation()
+        .AddSqlClientInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddOtlpExporter(options =>
+        {
+            options.Endpoint = new Uri("http://otel-collector:4317");
+        });
+});
+```
+
+## Custom Metrics Collection
+
+### Database Metrics
+
+Query repository metrics directly:
+
+```csharp
+public async Task<SecurityTaskMetrics> GetTaskMetrics(Guid organizationId)
+{
+    var metrics = await _securityTaskRepository.GetTaskMetricsAsync(organizationId);
+    return metrics;
+}
+```
+
+### Performance Counters
+
+Monitor .NET performance counters:
+
+```bash
+# CPU Usage
+dotnet-counters monitor --process-id <pid> System.Runtime
+
+# GC Statistics  
+dotnet-counters monitor --process-id <pid> System.Runtime[gc-heap-size,gen-0-gc-count]
+
+# HTTP Request Rate
+dotnet-counters monitor --process-id <pid> Microsoft.AspNetCore.Hosting
+```
+
+## Monitoring Dashboards
+
+### Grafana Dashboard Example
+
+```json
+{
+  "dashboard": {
+    "title": "Bitwarden Server Metrics",
+    "panels": [
+      {
+        "title": "Request Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Database Connections",
+        "targets": [
+          {
+            "expr": "sqlserver_connections_total"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Key Metrics to Monitor
+
+<CardGroup cols={2}>
+  <Card title="Request Latency" icon="gauge-high">
+    P50, P95, P99 response times for critical endpoints like `/api/ciphers` and `/connect/token`
+  </Card>
+  
+  <Card title="Error Rates" icon="triangle-exclamation">
+    HTTP 4xx and 5xx response rates, exception counts, failed authentication attempts
+  </Card>
+  
+  <Card title="Database Health" icon="database">
+    Connection pool utilization, query duration, failed queries, deadlocks
+  </Card>
+  
+  <Card title="Resource Utilization" icon="microchip">
+    CPU usage, memory consumption, GC pause times, thread pool saturation
+  </Card>
+</CardGroup>
+
+## Alerting
+
+### Critical Alerts
+
+**High Error Rate:**
+```yaml
+alert: HighErrorRate
+expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+for: 5m
+annotations:
+  summary: "High 5xx error rate detected"
+```
+
+**Database Connection Issues:**
+```yaml
+alert: DatabaseConnectionFailures
+expr: increase(sqlserver_connection_errors_total[5m]) > 10
+for: 2m
+annotations:
+  summary: "Multiple database connection failures"
+```
+
+**Health Check Failures:**
+```yaml
+alert: HealthCheckFailed
+expr: health_check_status != 1
+for: 3m
+annotations:
+  summary: "Service health check failing"
+```
+
+## Performance Tuning
+
+### Rate Limit Optimization
+
+Adjust rate limits based on metrics:
+
+```json
+{
+  "IpRateLimitOptions": {
+    "GeneralRules": [
+      {
+        "Endpoint": "post:*",
+        "Period": "1m",
+        "Limit": 60
+      },
+      {
+        "Endpoint": "get:*",
+        "Period": "1m",
+        "Limit": 200
+      }
+    ]
+  }
+}
+```
+
+### Database Connection Pooling
+
+Optimize based on connection metrics:
+
+```
+Server=sql;Database=vault;User Id=sa;Password=***;Min Pool Size=10;Max Pool Size=100;Pooling=true;
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Establish Baselines">
+    Monitor metrics for 1-2 weeks to establish normal operating baselines for your deployment.
+  </Step>
+  
+  <Step title="Set Meaningful Alerts">
+    Configure alerts based on baselines, not arbitrary thresholds. Focus on symptoms, not causes.
+  </Step>
+  
+  <Step title="Monitor Trends">
+    Track metrics over time to identify gradual degradation before it becomes critical.
+  </Step>
+  
+  <Step title="Correlate Metrics">
+    Use distributed tracing to correlate metrics across services for root cause analysis.
+  </Step>
+  
+  <Step title="Review Regularly">
+    Periodically review and adjust monitoring based on actual production patterns.
+  </Step>
+</Steps>
+
+<Warning>
+Avoid metric overload. Focus on metrics that indicate actual problems or predict failures. Too many metrics can obscure important signals.
+</Warning>
+
+## Related Resources
+
+- [Health Check Configuration](/operations/health-checks)
+- [Logging Configuration](/operations/logging)
+- [Troubleshooting Guide](/operations/troubleshooting)
+- [Performance Optimization](/deployment/performance)

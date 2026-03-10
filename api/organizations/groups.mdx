@@ -1,0 +1,372 @@
+---
+title: "Organization Groups API"
+description: "Manage user groups for simplified permission management"
+---
+
+## Overview
+
+Groups simplify permission management by allowing you to assign collections and permissions to groups of users rather than individual users.
+
+<Info>
+Groups are only available on Teams and Enterprise plans.
+</Info>
+
+## Get Group
+
+Retrieve a specific group.
+
+```bash
+GET /organizations/{orgId}/groups/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Group unique identifier
+</ResponseField>
+
+<ResponseField name="organizationId" type="string" required>
+  Parent organization ID
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Group name
+</ResponseField>
+
+<ResponseField name="accessAll" type="boolean" required>
+  Whether group has access to all collections
+</ResponseField>
+
+<ResponseField name="externalId" type="string">
+  External identifier for directory sync
+</ResponseField>
+
+---
+
+## Get Group with Details
+
+Retrieve group including collection assignments.
+
+```bash
+GET /organizations/{orgId}/groups/{id}/details
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Response
+
+Includes all group data plus:
+
+<ResponseField name="collections" type="array">
+  Array of collection access assignments
+</ResponseField>
+
+---
+
+## List Groups
+
+Retrieve all groups in an organization.
+
+```bash
+GET /organizations/{orgId}/groups
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+---
+
+## List Groups with Details
+
+Retrieve all groups including collection assignments.
+
+```bash
+GET /organizations/{orgId}/groups/details
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+---
+
+## Get Group Users
+
+Retrieve all user IDs in a group.
+
+```bash
+GET /organizations/{orgId}/groups/{id}/users
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Response
+
+Returns an array of organization user IDs.
+
+---
+
+## Create Group
+
+Create a new group.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/organizations/{orgId}/groups" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Engineering Team",
+    "accessAll": false,
+    "collections": [
+      {
+        "id": "collection-guid",
+        "readOnly": false,
+        "hidePasswords": false
+      }
+    ],
+    "users": ["user-guid-1", "user-guid-2"]
+  }'
+```
+
+```javascript JavaScript
+const group = await fetch(
+  `https://api.bitwarden.com/organizations/${orgId}/groups`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'Engineering Team',
+      accessAll: false,
+      collections: [{id: collectionId, readOnly: false}],
+      users: [userId1, userId2]
+    })
+  }
+);
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Group name
+</ParamField>
+
+<ParamField body="accessAll" type="boolean" default="false">
+  Grant access to all collections
+</ParamField>
+
+<ParamField body="externalId" type="string">
+  External identifier for directory sync
+</ParamField>
+
+<ParamField body="collections" type="array">
+  Collection access assignments (required if accessAll=false)
+</ParamField>
+
+<ParamField body="users" type="array">
+  Array of organization user IDs to add to group
+</ParamField>
+
+### Collection Access Object
+
+<ParamField body="id" type="string" required>
+  Collection ID
+</ParamField>
+
+<ParamField body="readOnly" type="boolean" default="false">
+  Read-only access
+</ParamField>
+
+<ParamField body="hidePasswords" type="boolean" default="false">
+  Hide password fields
+</ParamField>
+
+---
+
+## Update Group
+
+Update an existing group.
+
+```bash
+PUT /organizations/{orgId}/groups/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Request Body
+
+Same as Create Group - all fields must be provided.
+
+<Warning>
+You cannot add yourself to a group unless admin access to all collections is enabled.
+</Warning>
+
+---
+
+## Delete Group
+
+Permanently delete a group.
+
+```bash
+DELETE /organizations/{orgId}/groups/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+<Info>
+Deleting a group removes users from the group but does not delete the users themselves. Users lose access to collections granted via the group.
+</Info>
+
+---
+
+## Bulk Delete Groups
+
+Delete multiple groups at once.
+
+```bash
+DELETE /organizations/{orgId}/groups
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="ids" type="array" required>
+  Array of group IDs to delete
+</ParamField>
+
+---
+
+## Group Management Best Practices
+
+### Organizing Groups
+
+1. **By Department**: Engineering, Marketing, Sales, Finance
+2. **By Role**: Admins, Managers, Contractors
+3. **By Project**: Project Alpha, Beta Testing, Production
+4. **By Location**: US Team, EU Team, APAC Team
+
+### Naming Conventions
+
+```
+[Department/Team] - [Access Level]
+
+Examples:
+- Engineering - Full Access
+- Marketing - Read Only
+- Finance - Restricted
+- Contractors - Limited
+```
+
+### Access Strategy
+
+1. **Use groups instead of individual users** for collection access
+2. **Keep groups focused** - one clear purpose per group
+3. **Review membership regularly** - audit who's in each group
+4. **Use accessAll sparingly** - grant specific collection access when possible
+5. **Leverage directory sync** - automate group membership with LDAP/SCIM
+
+---
+
+## Permission Inheritance
+
+Users inherit collection access from all groups they belong to:
+
+```
+User A belongs to:
+- Group 1: Collection A (read-only)
+- Group 2: Collection B (read-write)
+- Group 3: Collection A (read-write)
+
+Effective permissions:
+- Collection A: read-write (highest permission wins)
+- Collection B: read-write
+```
+
+<Info>
+When a user is in multiple groups with different permissions to the same collection, they receive the highest level of access.
+</Info>
+
+---
+
+## Directory Sync
+
+Groups can be synchronized with external directory services:
+
+### LDAP/Active Directory
+
+```json
+{
+  "name": "Engineering",
+  "externalId": "CN=Engineering,OU=Groups,DC=company,DC=com",
+  "accessAll": false,
+  "collections": [...]
+}
+```
+
+### SCIM
+
+Groups created via SCIM automatically include the external ID:
+
+```json
+{
+  "name": "Marketing Team",
+  "externalId": "00g1234abcd",
+  "accessAll": false
+}
+```
+
+<Warning>
+Do not manually modify groups that are managed by directory sync. Changes may be overwritten during the next sync.
+</Warning>
+
+---
+
+## Groups vs Direct User Assignment
+
+| Feature | Groups | Direct Assignment |
+|---------|--------|------------------|
+| Scalability | High - add many users at once | Low - one user at a time |
+| Maintenance | Easy - update group membership | Difficult - update each user |
+| Audit Trail | Clear group structure | Hard to track |
+| Directory Sync | Supported | Not applicable |
+| Flexibility | Moderate | High |
+
+**Recommendation**: Use groups for most use cases. Reserve direct user assignment for exceptional cases.

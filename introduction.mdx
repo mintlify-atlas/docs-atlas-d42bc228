@@ -1,0 +1,184 @@
+---
+title: Introduction
+description: Overview of Bitwarden Server - the open-source backend for password management
+---
+
+<img
+  className="block dark:hidden"
+  src="https://github.com/bitwarden/brand/blob/main/screenshots/apps-combo-logo.png?raw=true"
+  alt="Bitwarden"
+/>
+<img
+  className="hidden dark:block"
+  src="https://github.com/bitwarden/brand/blob/main/screenshots/apps-combo-logo.png?raw=true"
+  alt="Bitwarden"
+/>
+
+## What is Bitwarden Server?
+
+Bitwarden Server contains the APIs, database, and core infrastructure needed for the "backend" of all Bitwarden client applications. It provides a complete password management solution that can be self-hosted or deployed in the cloud.
+
+<CardGroup cols={2}>
+  <Card title="API Services" icon="server" iconType="duotone">
+    RESTful APIs for vault synchronization, authentication, and user management
+  </Card>
+  <Card title="Identity Server" icon="key" iconType="duotone">
+    OAuth 2.0 and OpenID Connect authentication with multi-factor support
+  </Card>
+  <Card title="Database Layer" icon="database" iconType="duotone">
+    SQL Server, PostgreSQL, or MySQL with Entity Framework and Dapper
+  </Card>
+  <Card title="Event Processing" icon="bolt" iconType="duotone">
+    Real-time notifications and background event processing
+  </Card>
+</CardGroup>
+
+## Key Features
+
+### Cross-Platform Architecture
+
+The server is written in **C#** using **.NET** with **ASP.NET Core**, enabling development, building, running, and deployment across:
+
+- Windows
+- macOS
+- Linux distributions
+
+### Microservices Design
+
+Bitwarden Server uses a microservices architecture with specialized services:
+
+<AccordionGroup>
+  <Accordion title="Core Services">
+    - **API** - Main REST API for vault operations
+    - **Identity** - Authentication and OAuth 2.0 provider
+    - **Admin** - Administrative portal and API
+    - **Notifications** - WebSocket-based real-time updates
+    - **Events** - Event logging and audit trail
+  </Accordion>
+  
+  <Accordion title="Enterprise Services">
+    - **SSO** - SAML 2.0 and OpenID Connect single sign-on
+    - **SCIM** - Automated user provisioning
+    - **Billing** - Subscription and payment processing
+  </Accordion>
+  
+  <Accordion title="Supporting Services">
+    - **Events Processor** - Background event processing
+    - **Icons** - Favicon fetching for vault items
+  </Accordion>
+</AccordionGroup>
+
+### Database Support
+
+Bitwarden Server supports multiple database engines:
+
+- **Microsoft SQL Server** (default)
+- **PostgreSQL**
+- **MySQL / MariaDB**
+- **SQLite** (development only)
+
+Database migrations are managed through the built-in Migrator utility.
+
+### Security Features
+
+<CardGroup cols={2}>
+  <Card title="End-to-End Encryption" icon="lock">
+    All vault data is encrypted client-side before transmission
+  </Card>
+  <Card title="Two-Factor Authentication" icon="shield-check">
+    Support for TOTP, WebAuthn, Duo, YubiKey, and email 2FA
+  </Card>
+  <Card title="Zero-Knowledge Architecture" icon="eye-slash">
+    Server never has access to unencrypted vault data
+  </Card>
+  <Card title="Compliance Ready" icon="certificate">
+    Audit logging and compliance features for enterprise deployments
+  </Card>
+</CardGroup>
+
+## Deployment Options
+
+<Tabs>
+  <Tab title="Docker">
+    Deploy using Docker containers with docker-compose for quick setup:
+    
+    ```bash
+    curl -s -L -o bitwarden.sh \
+        "https://func.bitwarden.com/api/dl/?app=self-host&platform=linux" \
+        && chmod +x bitwarden.sh
+    ./bitwarden.sh install
+    ./bitwarden.sh start
+    ```
+    
+    See [Docker Deployment](/deployment/docker) for details.
+  </Tab>
+  
+  <Tab title="Kubernetes">
+    Deploy to Kubernetes clusters for production-grade scalability and high availability.
+    
+    Requires configuring:
+    - Service deployments
+    - Ingress controllers
+    - Persistent volumes
+    - Secrets management
+  </Tab>
+  
+  <Tab title="Native">
+    Run directly on the host OS:
+    
+    - Install .NET runtime
+    - Configure SQL database
+    - Set up nginx/IIS reverse proxy
+    - Configure SSL certificates
+  </Tab>
+</Tabs>
+
+## Community and Support
+
+<CardGroup cols={3}>
+  <Card title="Contributing" icon="code-pull-request" href="https://contributing.bitwarden.com">
+    Contribution guidelines and development documentation
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/bitwarden/server">
+    Source code, issues, and pull requests
+  </Card>
+  <Card title="Security" icon="bug" href="https://hackerone.com/bitwarden">
+    Security audit and responsible disclosure program
+  </Card>
+</CardGroup>
+
+<Info>
+  **Open Source**: Bitwarden Server is open source under the AGPL 3.0 license with additional terms. Enterprise features require a commercial license.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="diagram-project" href="/architecture">
+    Understand the system architecture and microservices design
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get Bitwarden Server running in minutes
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Complete Docker deployment guide
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/authentication/overview">
+    Explore the REST API documentation
+  </Card>
+</CardGroup>
+
+## Production Images
+
+All Bitwarden services are available as Docker images from [GitHub Container Registry](https://github.com/orgs/bitwarden/packages):
+
+- `ghcr.io/bitwarden/api`
+- `ghcr.io/bitwarden/identity`
+- `ghcr.io/bitwarden/admin`
+- `ghcr.io/bitwarden/notifications`
+- `ghcr.io/bitwarden/events`
+- `ghcr.io/bitwarden/events-processor`
+- `ghcr.io/bitwarden/sso` (Enterprise)
+- `ghcr.io/bitwarden/scim` (Enterprise)
+- `ghcr.io/bitwarden/billing`
+- `ghcr.io/bitwarden/icons`

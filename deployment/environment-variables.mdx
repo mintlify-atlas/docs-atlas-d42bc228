@@ -1,0 +1,578 @@
+---
+title: Environment Variables
+description: Complete reference for Bitwarden Server environment variables
+---
+
+## Overview
+
+Bitwarden Server services can be configured using environment variables. Environment variables override settings from `appsettings.json` files.
+
+<Info>
+  Environment variable names use double underscores (`__`) to represent nested configuration sections.
+  
+  Example: `globalSettings__sqlServer__connectionString`
+</Info>
+
+## Variable Naming Convention
+
+Configuration path to environment variable conversion:
+
+```json appsettings.json
+{
+  "globalSettings": {
+    "sqlServer": {
+      "connectionString": "Server=localhost;..."
+    }
+  }
+}
+```
+
+Becomes:
+
+```bash
+globalSettings__sqlServer__connectionString="Server=localhost;..."
+```
+
+## Core Configuration
+
+### Global Settings
+
+<ParamField path="globalSettings__selfHosted" type="boolean" default="false">
+  Enable self-hosted mode. Disables cloud-specific features.
+  
+  ```bash
+  globalSettings__selfHosted=true
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__siteName" type="string" default="Bitwarden">
+  Display name for the installation.
+  
+  ```bash
+  globalSettings__siteName="My Company Vault"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__projectName" type="string" required>
+  Service name (Api, Identity, Admin, etc.).
+  
+  ```bash
+  globalSettings__projectName=Api
+  ```
+</ParamField>
+
+### Database Configuration
+
+<ParamField path="globalSettings__sqlServer__connectionString" type="string" required>
+  Primary database connection string.
+  
+  **SQL Server**:
+  ```bash
+  globalSettings__sqlServer__connectionString="Server=mssql;Database=vault;User Id=sa;Password=YourPassword;TrustServerCertificate=True;"
+  ```
+  
+  **PostgreSQL**:
+  ```bash
+  globalSettings__sqlServer__connectionString="Host=postgres;Database=vault;Username=postgres;Password=YourPassword;"
+  ```
+  
+  **MySQL**:
+  ```bash
+  globalSettings__sqlServer__connectionString="Server=mysql;Database=vault;Uid=root;Pwd=YourPassword;"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__sqlServer__readOnlyConnectionString" type="string">
+  Optional read replica connection string for read operations.
+  
+  ```bash
+  globalSettings__sqlServer__readOnlyConnectionString="Server=replica;Database=vault;User Id=readonly;Password=pass;"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__databaseProvider" type="string" default="sqlserver">
+  Database provider: `sqlserver`, `postgres`, or `mysql`.
+  
+  ```bash
+  globalSettings__databaseProvider=postgres
+  ```
+</ParamField>
+
+### Certificate Configuration
+
+<ParamField path="globalSettings__identityServer__certificateThumbprint" type="string">
+  SHA-1 thumbprint of Identity Server signing certificate.
+  
+  ```bash
+  globalSettings__identityServer__certificateThumbprint=ABC123DEF456789...
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__identityServer__certificatePath" type="string">
+  Path to Identity Server certificate PFX file (alternative to thumbprint).
+  
+  ```bash
+  globalSettings__identityServer__certificatePath=/etc/bitwarden/identity_server.pfx
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__identityServer__certificatePassword" type="string">
+  Password for Identity Server certificate PFX file.
+  
+  ```bash
+  globalSettings__identityServer__certificatePassword=your_password
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__dataProtection__certificateThumbprint" type="string">
+  SHA-1 thumbprint of Data Protection certificate.
+  
+  ```bash
+  globalSettings__dataProtection__certificateThumbprint=ABC123DEF456789...
+  ```
+</ParamField>
+
+### Storage Configuration
+
+<ParamField path="globalSettings__storage__connectionString" type="string" required>
+  Blob storage connection string for attachments.
+  
+  **Azure Blob Storage**:
+  ```bash
+  globalSettings__storage__connectionString="DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;"
+  ```
+  
+  **Local Development (Azurite)**:
+  ```bash
+  globalSettings__storage__connectionString="DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://storage:10000/devstoreaccount1;"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__attachment__connectionString" type="string">
+  Separate storage for attachments (optional).
+  
+  ```bash
+  globalSettings__attachment__connectionString="DefaultEndpointsProtocol=https;..."
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__send__connectionString" type="string">
+  Separate storage for Send files (optional).
+  
+  ```bash
+  globalSettings__send__connectionString="DefaultEndpointsProtocol=https;..."
+  ```
+</ParamField>
+
+### Mail Configuration
+
+<ParamField path="globalSettings__mail__replyToEmail" type="string" required>
+  Reply-to email address for system emails.
+  
+  ```bash
+  globalSettings__mail__replyToEmail=no-reply@example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__sendGridApiKey" type="string">
+  SendGrid API key for email delivery.
+  
+  ```bash
+  globalSettings__mail__sendGridApiKey=SG.xxxxxxxxxx
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__smtp__host" type="string">
+  SMTP server hostname.
+  
+  ```bash
+  globalSettings__mail__smtp__host=smtp.gmail.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__smtp__port" type="integer" default="587">
+  SMTP server port.
+  
+  ```bash
+  globalSettings__mail__smtp__port=587
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__smtp__ssl" type="boolean" default="true">
+  Enable SSL/TLS for SMTP.
+  
+  ```bash
+  globalSettings__mail__smtp__ssl=true
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__smtp__username" type="string">
+  SMTP authentication username.
+  
+  ```bash
+  globalSettings__mail__smtp__username=user@example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__mail__smtp__password" type="string">
+  SMTP authentication password.
+  
+  ```bash
+  globalSettings__mail__smtp__password=your_password
+  ```
+</ParamField>
+
+### Service URLs
+
+<ParamField path="globalSettings__baseServiceUri__api" type="string" required>
+  Public URL for API service.
+  
+  ```bash
+  globalSettings__baseServiceUri__api=https://api.vault.example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__baseServiceUri__identity" type="string" required>
+  Public URL for Identity service.
+  
+  ```bash
+  globalSettings__baseServiceUri__identity=https://identity.vault.example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__baseServiceUri__admin" type="string">
+  Public URL for Admin service.
+  
+  ```bash
+  globalSettings__baseServiceUri__admin=https://admin.vault.example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__baseServiceUri__notifications" type="string">
+  Public URL for Notifications service.
+  
+  ```bash
+  globalSettings__baseServiceUri__notifications=wss://notifications.vault.example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__baseServiceUri__sso" type="string">
+  Public URL for SSO service.
+  
+  ```bash
+  globalSettings__baseServiceUri__sso=https://sso.vault.example.com
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__baseServiceUri__vault" type="string" required>
+  Public URL for web vault.
+  
+  ```bash
+  globalSettings__baseServiceUri__vault=https://vault.example.com
+  ```
+</ParamField>
+
+### Message Bus Configuration
+
+<ParamField path="globalSettings__serviceBus__connectionString" type="string">
+  Azure Service Bus or RabbitMQ connection string.
+  
+  **Azure Service Bus**:
+  ```bash
+  globalSettings__serviceBus__connectionString="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=key"
+  ```
+  
+  **RabbitMQ**:
+  ```bash
+  globalSettings__serviceBus__connectionString="amqp://username:password@rabbitmq:5672"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__serviceBus__useRabbitMq" type="boolean" default="false">
+  Use RabbitMQ instead of Azure Service Bus.
+  
+  ```bash
+  globalSettings__serviceBus__useRabbitMq=true
+  ```
+</ParamField>
+
+### Cache Configuration
+
+<ParamField path="globalSettings__redis__connectionString" type="string">
+  Redis connection string for distributed caching.
+  
+  ```bash
+  globalSettings__redis__connectionString="redis:6379,password=your_password"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__distributedCache__provider" type="string" default="memory">
+  Cache provider: `memory`, `redis`, or `cosmos`.
+  
+  ```bash
+  globalSettings__distributedCache__provider=redis
+  ```
+</ParamField>
+
+## Service-Specific Variables
+
+### API Service
+
+<ParamField path="IpRateLimitOptions__EnableEndpointRateLimiting" type="boolean" default="true">
+  Enable rate limiting.
+  
+  ```bash
+  IpRateLimitOptions__EnableEndpointRateLimiting=true
+  ```
+</ParamField>
+
+<ParamField path="IpRateLimitOptions__RealIpHeader" type="string" default="X-Forwarded-For">
+  Header containing real client IP (when behind proxy).
+  
+  ```bash
+  IpRateLimitOptions__RealIpHeader=X-Real-IP
+  ```
+</ParamField>
+
+### Identity Service
+
+<ParamField path="IdentityServerOptions__IssuerUri" type="string">
+  Override issuer URI for tokens.
+  
+  ```bash
+  IdentityServerOptions__IssuerUri=https://identity.example.com
+  ```
+</ParamField>
+
+### Notifications Service
+
+<ParamField path="globalSettings__notificationHub__connectionString" type="string">
+  Azure Notification Hub connection string.
+  
+  ```bash
+  globalSettings__notificationHub__connectionString="Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=DefaultFullSharedAccessSignature;SharedAccessKey=key"
+  ```
+</ParamField>
+
+<ParamField path="globalSettings__notificationHub__hubName" type="string">
+  Azure Notification Hub name.
+  
+  ```bash
+  globalSettings__notificationHub__hubName=bitwarden-hub
+  ```
+</ParamField>
+
+### SSO Service
+
+<ParamField path="SsoSettings__CacheLifetimeInMinutes" type="integer" default="5">
+  SSO configuration cache lifetime.
+  
+  ```bash
+  SsoSettings__CacheLifetimeInMinutes=10
+  ```
+</ParamField>
+
+## ASP.NET Core Variables
+
+<ParamField path="ASPNETCORE_ENVIRONMENT" type="string" default="Production">
+  Runtime environment: `Development`, `Staging`, or `Production`.
+  
+  ```bash
+  ASPNETCORE_ENVIRONMENT=Production
+  ```
+</ParamField>
+
+<ParamField path="ASPNETCORE_URLS" type="string" default="http://+:5000">
+  URLs to listen on.
+  
+  ```bash
+  ASPNETCORE_URLS=http://+:5000;https://+:5001
+  ```
+</ParamField>
+
+<ParamField path="ASPNETCORE_Kestrel__Certificates__Default__Path" type="string">
+  Path to Kestrel HTTPS certificate.
+  
+  ```bash
+  ASPNETCORE_Kestrel__Certificates__Default__Path=/etc/ssl/cert.pfx
+  ```
+</ParamField>
+
+<ParamField path="ASPNETCORE_Kestrel__Certificates__Default__Password" type="string">
+  Password for Kestrel HTTPS certificate.
+  
+  ```bash
+  ASPNETCORE_Kestrel__Certificates__Default__Password=your_password
+  ```
+</ParamField>
+
+## Logging Configuration
+
+<ParamField path="Logging__LogLevel__Default" type="string" default="Information">
+  Default log level: `Trace`, `Debug`, `Information`, `Warning`, `Error`, `Critical`.
+  
+  ```bash
+  Logging__LogLevel__Default=Warning
+  ```
+</ParamField>
+
+<ParamField path="Logging__LogLevel__Microsoft" type="string" default="Warning">
+  Log level for Microsoft libraries.
+  
+  ```bash
+  Logging__LogLevel__Microsoft=Information
+  ```
+</ParamField>
+
+## Docker Compose Example
+
+Complete example with all common variables:
+
+```yaml docker-compose.yml
+services:
+  api:
+    image: ghcr.io/bitwarden/api:latest
+    environment:
+      # Core Settings
+      globalSettings__selfHosted: "true"
+      globalSettings__siteName: "Bitwarden"
+      globalSettings__projectName: "Api"
+      
+      # Database
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+      
+      # Certificates
+      globalSettings__identityServer__certificatePath: "/etc/bitwarden/identity_server.pfx"
+      globalSettings__identityServer__certificatePassword: "${IDENTITY_CERT_PASSWORD}"
+      globalSettings__dataProtection__certificatePath: "/etc/bitwarden/data_protection.pfx"
+      globalSettings__dataProtection__certificatePassword: "${DATA_PROTECTION_CERT_PASSWORD}"
+      
+      # Storage
+      globalSettings__storage__connectionString: "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://storage:10000/devstoreaccount1;"
+      
+      # Mail
+      globalSettings__mail__replyToEmail: "no-reply@${DOMAIN}"
+      globalSettings__mail__smtp__host: "${SMTP_HOST}"
+      globalSettings__mail__smtp__port: "${SMTP_PORT}"
+      globalSettings__mail__smtp__ssl: "true"
+      globalSettings__mail__smtp__username: "${SMTP_USERNAME}"
+      globalSettings__mail__smtp__password: "${SMTP_PASSWORD}"
+      
+      # Service URLs
+      globalSettings__baseServiceUri__api: "https://${DOMAIN}/api"
+      globalSettings__baseServiceUri__identity: "https://${DOMAIN}/identity"
+      globalSettings__baseServiceUri__vault: "https://${DOMAIN}"
+      
+      # Message Bus
+      globalSettings__serviceBus__connectionString: "amqp://${RABBITMQ_USER}:${RABBITMQ_PASS}@rabbitmq:5672"
+      globalSettings__serviceBus__useRabbitMq: "true"
+      
+      # Redis
+      globalSettings__redis__connectionString: "redis:6379,password=${REDIS_PASSWORD}"
+      
+      # Rate Limiting
+      IpRateLimitOptions__EnableEndpointRateLimiting: "true"
+      IpRateLimitOptions__RealIpHeader: "X-Forwarded-For"
+      
+      # ASP.NET Core
+      ASPNETCORE_ENVIRONMENT: "Production"
+      
+      # Logging
+      Logging__LogLevel__Default: "Warning"
+```
+
+## Environment File
+
+Store variables in `.env` file:
+
+```bash .env
+# Domain
+DOMAIN=vault.example.com
+
+# Database
+MSSQL_PASSWORD=YourStrongPassword123!
+
+# Certificates
+IDENTITY_CERT_PASSWORD=CertPassword123!
+DATA_PROTECTION_CERT_PASSWORD=CertPassword123!
+
+# Redis
+REDIS_PASSWORD=RedisPassword123!
+
+# RabbitMQ
+RABBITMQ_USER=bitwarden
+RABBITMQ_PASS=RabbitMQPassword123!
+
+# SMTP
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=user@example.com
+SMTP_PASSWORD=SmtpPassword123!
+```
+
+<Warning>
+  **Security**: Never commit `.env` files to version control. Add to `.gitignore`.
+</Warning>
+
+## Validation
+
+Test configuration after setting environment variables:
+
+```bash
+# Print effective configuration (redacted)
+docker exec bitwarden-api dotnet run --project /app/Api.dll --print-config
+
+# Check specific setting
+docker exec bitwarden-api env | grep globalSettings__sqlServer__connectionString
+
+# Verify service starts without errors
+docker logs bitwarden-api
+```
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Secrets Management" icon="vault">
+    Store sensitive values in:
+    - Docker secrets
+    - Kubernetes secrets
+    - Azure Key Vault
+    - HashiCorp Vault
+    - AWS Secrets Manager
+  </Card>
+  
+  <Card title="Restrict Access" icon="lock">
+    - Limit who can view environment variables
+    - Use read-only volumes for certificates
+    - Rotate credentials regularly
+  </Card>
+  
+  <Card title="Audit Logging" icon="file-lines">
+    - Log configuration changes
+    - Monitor secret access
+    - Alert on configuration errors
+  </Card>
+  
+  <Card title="Validation" icon="check">
+    - Validate on startup
+    - Use strong passwords
+    - Test in staging first
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Learn about appsettings.json configuration
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy with Docker Compose
+  </Card>
+  <Card title="SSL Certificates" icon="certificate" href="/deployment/ssl-certificates">
+    Configure certificates
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/operations/troubleshooting">
+    Resolve configuration issues
+  </Card>
+</CardGroup>

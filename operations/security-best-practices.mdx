@@ -1,0 +1,631 @@
+---
+title: Security Best Practices
+description: Essential security practices and hardening guidelines for Bitwarden Server production deployments
+---
+
+Securing your Bitwarden Server deployment is critical as it stores sensitive credential data. This guide covers security hardening, access controls, and operational security best practices.
+
+## Infrastructure Security
+
+### Network Security
+
+#### TLS/SSL Configuration
+
+<Warning>
+**Never run Bitwarden Server without TLS encryption in production.** All traffic must be encrypted to protect credentials in transit.
+</Warning>
+
+**Minimum TLS Version:**
+```nginx
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+ssl_prefer_server_ciphers off;
+```
+
+**Certificate Requirements:**
+- Use certificates from trusted Certificate Authorities
+- Implement certificate pinning for mobile apps
+- Monitor certificate expiration (renew 30 days before expiry)
+- Use 2048-bit or 4096-bit RSA keys (or 256-bit ECDSA)
+
+#### Firewall Rules
+
+**Required Ports:**
+```bash
+# Allow only necessary ports
+# HTTPS (required)
+iptables -A INPUT -p tcp --dport 443 -j ACCEPT
+
+# HTTP (redirect to HTTPS only)
+iptables -A INPUT -p tcp --dport 80 -j ACCEPT
+
+# Block direct access to internal services
+iptables -A INPUT -p tcp --dport 5000 -j DROP  # Block API port
+iptables -A INPUT -p tcp --dport 33656 -j DROP # Block Identity port
+```
+
+**Internal Service Isolation:**
+```yaml
+# docker-compose.yml
+services:
+  api:
+    networks:
+      - internal
+    expose:
+      - "5000"  # Expose internally only
+    # Do NOT use 'ports:' directive for internal services
+  
+  nginx:
+    networks:
+      - internal
+      - external
+    ports:
+      - "443:443"
+      - "80:80"
+
+networks:
+  internal:
+    internal: true
+  external:
+```
+
+### Database Security
+
+#### Authentication
+
+**Strong SA Password:**
+```bash
+# Generate strong password
+SA_PASSWORD=$(openssl rand -base64 32)
+
+# Store securely (e.g., in secret management system)
+# Never commit passwords to version control
+```
+
+**Connection String Security:**
+```json
+{
+  "globalSettings": {
+    "sqlServer": {
+      "connectionString": "Server=mssql;Database=vault;User Id=sa;Password=***;Encrypt=True;TrustServerCertificate=False;"
+    }
+  }
+}
+```
+
+**Key Parameters:**
+- `Encrypt=True` - Enforce encrypted connections
+- `TrustServerCertificate=False` - Validate server certificate
+- Use SQL Server authentication with strong passwords
+
+#### Database Encryption
+
+**Enable Transparent Data Encryption (TDE):**
+```sql
+-- Create master key
+USE master;
+CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'StrongPassword123!';
+
+-- Create certificate
+CREATE CERTIFICATE TDECert WITH SUBJECT = 'Bitwarden TDE Certificate';
+
+-- Create database encryption key
+USE vault;
+CREATE DATABASE ENCRYPTION KEY
+WITH ALGORITHM = AES_256
+ENCRYPTION BY SERVER CERTIFICATE TDECert;
+
+-- Enable TDE
+ALTER DATABASE vault SET ENCRYPTION ON;
+
+-- Verify encryption
+SELECT name, is_encrypted FROM sys.databases WHERE name = 'vault';
+```
+
+**Backup Certificate:**
+```sql
+-- Backup TDE certificate (CRITICAL for disaster recovery)
+BACKUP CERTIFICATE TDECert TO FILE = '/backups/TDECert.cer'
+WITH PRIVATE KEY (
+    FILE = '/backups/TDECert_key.pvk',
+    ENCRYPTION BY PASSWORD = 'SecureBackupPassword123!'
+);
+```
+
+<Warning>
+**Store TDE certificate backups securely and separately from database backups.** Without the certificate, encrypted database backups cannot be restored.
+</Warning>
+
+#### Access Control
+
+**Principle of Least Privilege:**
+```sql
+-- Create application user with limited permissions
+CREATE LOGIN bitwarden_app WITH PASSWORD = 'AppPassword123!';
+CREATE USER bitwarden_app FOR LOGIN bitwarden_app;
+
+-- Grant only necessary permissions
+GRANT SELECT, INSERT, UPDATE, DELETE ON SCHEMA::dbo TO bitwarden_app;
+GRANT EXECUTE ON SCHEMA::dbo TO bitwarden_app;
+
+-- Deny dangerous permissions
+DENY CREATE TABLE TO bitwarden_app;
+DENY ALTER TO bitwarden_app;
+DENY DROP TO bitwarden_app;
+```
+
+## Application Security
+
+### Data Protection
+
+#### Certificate Management
+
+Bitwarden uses Data Protection certificates for securing sensitive data:
+
+**Configuration:** `src/Core/Settings/GlobalSettings.cs:548`
+
+```json
+{
+  "globalSettings": {
+    "dataProtection": {
+      "certificateThumbprint": "ABC123...",
+      "certificatePassword": "CertPassword",
+      "directory": "/etc/bitwarden/core/aspnet-dataprotection"
+    }
+  }
+}
+```
+
+**Certificate Requirements:**
+- Use strong RSA keys (2048-bit minimum, 4096-bit recommended)
+- Store certificates securely with restricted permissions
+- Rotate certificates annually
+- Backup certificates for disaster recovery
+
+**File Permissions:**
+```bash
+chown -R bitwarden:bitwarden /etc/bitwarden/core/aspnet-dataprotection
+chmod 700 /etc/bitwarden/core/aspnet-dataprotection
+chmod 600 /etc/bitwarden/core/aspnet-dataprotection/*
+```
+
+### Authentication Security
+
+#### Password Policies
+
+Enforce strong master password requirements:
+
+```json
+{
+  "globalSettings": {
+    "passwordRequirements": {
+      "minLength": 12,
+      "requireUppercase": true,
+      "requireLowercase": true,
+      "requireNumbers": true,
+      "requireSpecialCharacters": true
+    }
+  }
+}
+```
+
+#### Two-Factor Authentication
+
+**Enforce 2FA for Administrators:**
+```sql
+-- Check 2FA status for organization owners
+SELECT u.Email, u.TwoFactorProviders
+FROM [dbo].[User] u
+JOIN [dbo].[OrganizationUser] ou ON u.Id = ou.UserId
+WHERE ou.Type = 0  -- Owner
+AND (u.TwoFactorProviders IS NULL OR u.TwoFactorProviders = '');
+```
+
+**Recommended 2FA Methods:**
+1. Authenticator apps (TOTP) - Most secure
+2. WebAuthn/FIDO2 - Hardware key support
+3. Email 2FA - Fallback option only
+
+<Warning>
+SMS 2FA is **not supported** by Bitwarden due to security concerns with SMS interception attacks.
+</Warning>
+
+#### Rate Limiting
+
+**Critical Endpoints:** `src/Api/appsettings.json:78`
+
+```json
+{
+  "IpRateLimitOptions": {
+    "EnableEndpointRateLimiting": true,
+    "GeneralRules": [
+      {
+        "Endpoint": "post:/connect/token",
+        "Period": "1m",
+        "Limit": 10
+      },
+      {
+        "Endpoint": "post:/accounts/password-hint",
+        "Period": "60m",
+        "Limit": 5
+      },
+      {
+        "Endpoint": "post:/two-factor/send-email",
+        "Period": "10m",
+        "Limit": 5
+      }
+    ]
+  }
+}
+```
+
+**Distributed Rate Limiting:**
+```json
+{
+  "distributedIpRateLimiting": {
+    "enabled": true,
+    "maxRedisTimeoutsThreshold": 10,
+    "slidingWindowSeconds": 120
+  }
+}
+```
+
+### Session Management
+
+#### Token Security
+
+**Identity Server Settings:** `src/Core/Settings/GlobalSettings.cs:493`
+
+```json
+{
+  "identityServer": {
+    "accessTokenLifetimeMinutes": 60,
+    "refreshTokenLifetimeMinutes": 43200,
+    "absoluteRefreshTokenLifetimeDays": 30
+  }
+}
+```
+
+**Security Recommendations:**
+- Keep access token lifetime short (≤60 minutes)
+- Implement refresh token rotation
+- Revoke tokens on password change
+- Clear tokens on logout
+
+#### Session Timeout
+
+```json
+{
+  "vaultTimeout": {
+    "default": 15,
+    "maximum": 60,
+    "allowNever": false
+  }
+}
+```
+
+## Access Control
+
+### Administrative Access
+
+#### Admin Portal Protection
+
+```nginx
+# Restrict admin portal by IP
+location /admin {
+    allow 10.0.0.0/8;      # Internal network
+    allow 192.168.1.100;    # Admin workstation
+    deny all;
+    
+    proxy_pass http://admin:5000;
+}
+```
+
+#### Privileged Operations
+
+**Require approval for:**
+- User role changes
+- Organization ownership transfers
+- Bulk user operations
+- System configuration changes
+
+### Organization Security
+
+#### Collection Management
+
+**Principle of Least Privilege:**
+```sql
+-- Audit collection access
+SELECT 
+    c.Name AS CollectionName,
+    ou.Email AS UserEmail,
+    cg.ReadOnly,
+    cg.HidePasswords
+FROM [dbo].[Collection] c
+JOIN [dbo].[CollectionUser] cu ON c.Id = cu.CollectionId
+JOIN [dbo].[OrganizationUser] ou ON cu.OrganizationUserId = ou.Id
+WHERE c.OrganizationId = '<org-id>'
+ORDER BY c.Name, ou.Email;
+```
+
+**Access Reviews:**
+- Conduct quarterly access reviews
+- Remove inactive users promptly
+- Audit privileged access monthly
+
+## Data Security
+
+### Encryption at Rest
+
+#### Vault Data Encryption
+
+Bitwarden implements client-side encryption:
+
+**Encryption Types:** `src/Core/Utilities/EncryptedStringAttribute.cs:14`
+
+- `AesCbc256_B64` - Legacy encryption
+- `AesCbc128_HmacSha256_B64` - Standard encryption
+- `AesCbc256_HmacSha256_B64` - Enhanced encryption
+
+**Server stores only encrypted data:**
+- All cipher data encrypted with user's key
+- Master password never transmitted to server
+- Zero-knowledge encryption architecture
+
+#### File Encryption
+
+**Attachment Storage:**
+```json
+{
+  "attachment": {
+    "connectionString": "DefaultEndpointsProtocol=https;...",
+    "baseUrl": "https://attachments.example.com/"
+  }
+}
+```
+
+**For Azure Blob Storage:**
+- Enable storage account encryption
+- Use private endpoints
+- Implement SAS token rotation
+- Enable blob soft delete
+
+### Backup Security
+
+**Encrypt Backups:**
+```bash
+# Encrypt database backup
+gpg --symmetric --cipher-algo AES256 \
+  --output vault_backup.bak.gpg \
+  vault_backup.bak
+
+# Secure deletion of unencrypted backup
+shred -vfz -n 3 vault_backup.bak
+```
+
+**Backup Storage:**
+- Store backups encrypted
+- Separate backup storage from production
+- Implement backup retention policies
+- Test restore procedures quarterly
+
+See [Backup and Restore](/operations/backup-restore) for detailed procedures.
+
+## Monitoring and Auditing
+
+### Event Logging
+
+**Enable Comprehensive Logging:** `src/Core/Settings/GlobalSettings.cs:60`
+
+```json
+{
+  "eventLogging": {
+    "azureServiceBus": {
+      "connectionString": "Endpoint=sb://...",
+      "eventTopicName": "events",
+      "integrationTopicName": "integrations"
+    }
+  }
+}
+```
+
+**Events to Monitor:**
+- Failed login attempts
+- Privilege escalations
+- Configuration changes
+- Bulk operations
+- User/organization modifications
+- Vault access patterns
+
+**Implementation:** `src/Core/Dirt/Services/Implementations/EventService.cs`
+
+### Security Monitoring
+
+#### Critical Alerts
+
+<CardGroup cols={2}>
+  <Card title="Authentication Anomalies" icon="user-lock">
+    Alert on:
+    - Multiple failed login attempts
+    - Login from new location/device
+    - Impossible travel scenarios
+    - Privilege elevation
+  </Card>
+  
+  <Card title="Data Access Patterns" icon="database">
+    Alert on:
+    - Bulk data exports
+    - Unusual access volumes
+    - Access to sensitive collections
+    - After-hours access
+  </Card>
+  
+  <Card title="System Changes" icon="gear">
+    Alert on:
+    - Configuration modifications
+    - User role changes
+    - New admin accounts
+    - Service restarts
+  </Card>
+  
+  <Card title="Security Events" icon="shield-halved">
+    Alert on:
+    - Certificate expiration
+    - Failed health checks
+    - Database connection errors
+    - Rate limit violations
+  </Card>
+</CardGroup>
+
+#### Log Retention
+
+```bash
+# Retain logs for compliance
+# Recommended: 90 days minimum, 365 days for compliance
+find /etc/bitwarden/logs -name "*.txt" -mtime +90 -delete
+```
+
+## Vulnerability Management
+
+### Update Management
+
+**Patch Schedule:**
+- **Critical security updates:** Within 48 hours
+- **High severity:** Within 1 week
+- **Medium severity:** Within 30 days
+- **Regular updates:** Monthly
+
+See [Update Procedures](/operations/updates) for details.
+
+### Dependency Scanning
+
+```bash
+# Scan Docker images for vulnerabilities
+docker scan bitwarden/api:latest
+
+# Update base images regularly
+docker-compose pull
+```
+
+### Penetration Testing
+
+**Recommended Schedule:**
+- Annual external penetration test
+- Quarterly vulnerability scans
+- Continuous automated scanning
+
+## Compliance Considerations
+
+### Regulatory Requirements
+
+Depending on your industry, consider:
+
+- **GDPR:** Data protection, right to erasure, data portability
+- **HIPAA:** PHI protection, audit logging, access controls
+- **SOC 2:** Security controls, monitoring, incident response
+- **PCI DSS:** If storing payment card data in vault
+
+### Audit Logging
+
+**Required Audit Data:**
+```sql
+-- User authentication events
+SELECT * FROM [dbo].[Event] 
+WHERE Type IN (1000, 1001, 1002)  -- Login events
+AND Date >= DATEADD(day, -90, GETDATE());
+
+-- Administrative actions
+SELECT * FROM [dbo].[Event]
+WHERE Type >= 2000 AND Type < 3000  -- Organization events
+AND Date >= DATEADD(day, -90, GETDATE());
+```
+
+See [Compliance and Audit Logging](/operations/compliance) for details.
+
+## Incident Response
+
+### Security Incident Plan
+
+<Steps>
+  <Step title="Detection and Assessment">
+    - Identify incident type and scope
+    - Determine affected systems and data
+    - Assess severity level
+  </Step>
+  
+  <Step title="Containment">
+    - Isolate affected systems
+    - Revoke compromised credentials
+    - Block malicious IPs/traffic
+  </Step>
+  
+  <Step title="Eradication">
+    - Remove malicious access
+    - Patch vulnerabilities
+    - Reset compromised accounts
+  </Step>
+  
+  <Step title="Recovery">
+    - Restore from clean backups
+    - Verify system integrity
+    - Gradually restore services
+  </Step>
+  
+  <Step title="Post-Incident">
+    - Document incident timeline
+    - Conduct root cause analysis
+    - Update security controls
+    - Notify affected parties if required
+  </Step>
+</Steps>
+
+### Breach Response
+
+If credential data is potentially compromised:
+
+1. **Immediate Actions:**
+   - Force password reset for all users
+   - Invalidate all active sessions
+   - Enable additional authentication requirements
+
+2. **Investigation:**
+   - Review access logs
+   - Identify compromised accounts
+   - Determine data exposure scope
+
+3. **Notification:**
+   - Notify affected users
+   - Comply with breach notification laws
+   - Document incident for regulators
+
+## Security Checklist
+
+Use this checklist for new deployments:
+
+- [ ] TLS 1.2+ enforced with strong ciphers
+- [ ] Valid TLS certificate from trusted CA
+- [ ] Database encrypted at rest (TDE enabled)
+- [ ] Database connections encrypted
+- [ ] Strong passwords for all service accounts
+- [ ] Data protection certificates configured
+- [ ] Rate limiting enabled
+- [ ] Two-factor authentication enforced for admins
+- [ ] Regular backup schedule configured
+- [ ] Backups encrypted and tested
+- [ ] Event logging enabled and monitored
+- [ ] Security monitoring and alerting configured
+- [ ] Update schedule established
+- [ ] Incident response plan documented
+- [ ] Access controls reviewed and documented
+- [ ] Audit logging retention policy set
+- [ ] Firewall rules configured
+- [ ] Internal services not exposed externally
+- [ ] Log files protected with appropriate permissions
+- [ ] Admin portal access restricted
+
+## Related Resources
+
+- [Encryption Implementation](/operations/encryption)
+- [Compliance and Audit Logging](/operations/compliance)
+- [Backup and Restore](/operations/backup-restore)
+- [Update Procedures](/operations/updates)

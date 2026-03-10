@@ -1,0 +1,412 @@
+---
+title: "Projects API"
+description: "Organize secrets into projects"
+---
+
+## Overview
+
+Projects are containers that organize related secrets. They help you manage access control and group secrets logically.
+
+## List Projects
+
+Retrieve all projects in an organization.
+
+```bash
+GET /organizations/{organizationId}/projects
+```
+
+<ParamField path="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+### Response
+
+Returns all projects accessible to the current user or service account.
+
+<ResponseField name="id" type="string" required>
+  Project unique identifier
+</ResponseField>
+
+<ResponseField name="organizationId" type="string" required>
+  Parent organization ID
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Project name
+</ResponseField>
+
+<ResponseField name="creationDate" type="string" required>
+  When project was created
+</ResponseField>
+
+<ResponseField name="revisionDate" type="string" required>
+  Last modification date
+</ResponseField>
+
+<ResponseField name="read" type="boolean" required>
+  Whether user has read access
+</ResponseField>
+
+<ResponseField name="write" type="boolean" required>
+  Whether user has write access
+</ResponseField>
+
+---
+
+## Get Project
+
+Retrieve a specific project by ID.
+
+```bash
+GET /projects/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Project ID
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/projects/{id}" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+```javascript JavaScript
+const project = await fetch(
+  `https://api.bitwarden.com/projects/${projectId}`,
+  {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  }
+).then(r => r.json());
+
+console.log('Project:', project.name);
+```
+</CodeGroup>
+
+---
+
+## Create Project
+
+Create a new project.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/organizations/{organizationId}/projects" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production Environment"
+  }'
+```
+
+```javascript JavaScript
+const project = await fetch(
+  `https://api.bitwarden.com/organizations/${orgId}/projects`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'Production Environment'
+    })
+  }
+).then(r => r.json());
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Project name
+</ParamField>
+
+### Response
+
+Returns the created project with `read` and `write` both set to `true` (creator has full access).
+
+<Info>
+The number of projects you can create depends on your Secrets Manager plan.
+</Info>
+
+---
+
+## Update Project
+
+Update an existing project.
+
+```bash
+PUT /projects/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Project ID
+</ParamField>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  New project name
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "https://api.bitwarden.com/projects/{id}" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Production - Updated"
+  }'
+```
+
+```javascript JavaScript
+await fetch(`https://api.bitwarden.com/projects/${projectId}`, {
+  method: 'PUT',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'Staging Environment'
+  })
+});
+```
+</CodeGroup>
+
+---
+
+## Delete Projects
+
+Delete one or more projects.
+
+```bash
+POST /projects/delete
+```
+
+<ParamField body="ids" type="array" required>
+  Array of project IDs to delete
+</ParamField>
+
+### Response
+
+Returns results for each deletion attempt:
+
+```json
+{
+  "data": [
+    {
+      "id": "project-guid-1",
+      "error": ""
+    },
+    {
+      "id": "project-guid-2",
+      "error": "access denied"
+    }
+  ]
+}
+```
+
+<Warning>
+Deleting a project removes all secrets within it. This action cannot be undone.
+</Warning>
+
+---
+
+## Project Organization
+
+### By Environment
+
+```
+- Production
+- Staging  
+- Development
+- Testing
+```
+
+### By Application
+
+```
+- Web Application
+- Mobile App - iOS
+- Mobile App - Android
+- Background Workers
+```
+
+### By Team
+
+```
+- Engineering Team
+- DevOps
+- Data Science
+- QA Team
+```
+
+---
+
+## Access Control
+
+Projects support granular access control through access policies.
+
+### Grant User Access
+
+Allow specific users to access a project:
+
+```json
+{
+  "userAccessPolicies": [
+    {
+      "organizationUserId": "user-guid",
+      "read": true,
+      "write": false
+    }
+  ]
+}
+```
+
+### Grant Group Access
+
+Allow groups to access a project:
+
+```json
+{
+  "groupAccessPolicies": [
+    {
+      "groupId": "group-guid",
+      "read": true,
+      "write": true
+    }
+  ]
+}
+```
+
+### Grant Service Account Access
+
+Allow service accounts to access a project:
+
+```json
+{
+  "serviceAccountAccessPolicies": [
+    {
+      "serviceAccountId": "sa-guid",
+      "read": true,
+      "write": false
+    }
+  ]
+}
+```
+
+---
+
+## Best Practices
+
+### Naming Conventions
+
+Use clear, consistent names:
+
+```
+[Environment] - [Application/Service]
+
+Examples:
+Production - Web API
+Staging - Mobile App
+Development - Database
+Testing - E2E Tests
+```
+
+### Access Strategy
+
+1. **Least Privilege**: Grant minimum required access
+2. **Use Groups**: Assign access to groups, not individuals
+3. **Separate Environments**: Don't mix prod and dev in same project
+4. **Service Accounts**: Use for automation, limit to specific projects
+
+### Organization
+
+1. **One Project per Environment**: Separate production, staging, development
+2. **Limit Scope**: Keep projects focused on a single app/service
+3. **Document Purpose**: Use clear names that explain project purpose
+4. **Regular Audits**: Review project access periodically
+
+---
+
+## Usage Examples
+
+### Create Environment Projects
+
+```javascript
+const environments = ['Production', 'Staging', 'Development'];
+
+for (const env of environments) {
+  await fetch(
+    `https://api.bitwarden.com/organizations/${orgId}/projects`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name: env })
+    }
+  );
+}
+```
+
+### List Projects with Secrets Count
+
+```python
+import requests
+
+response = requests.get(
+    f"https://api.bitwarden.com/organizations/{org_id}/projects",
+    headers={"Authorization": f"Bearer {token}"}
+)
+
+projects = response.json()['data']
+
+for project in projects:
+    # Get secrets for each project
+    secrets_response = requests.get(
+        f"https://api.bitwarden.com/projects/{project['id']}/secrets",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    
+    secret_count = len(secrets_response.json()['data'])
+    print(f"{project['name']}: {secret_count} secrets")
+```
+
+### Migrate Secrets to New Project
+
+```bash
+#!/bin/bash
+
+# Get all secrets from old project
+OLD_SECRETS=$(curl -s "https://api.bitwarden.com/projects/${OLD_PROJECT_ID}/secrets" \
+  -H "Authorization: Bearer ${TOKEN}")
+
+# Update each secret to new project
+echo $OLD_SECRETS | jq -r '.data[].id' | while read SECRET_ID; do
+  curl -X PUT "https://api.bitwarden.com/secrets/${SECRET_ID}" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$(echo $OLD_SECRETS | jq ".data[] | select(.id==\"$SECRET_ID\") | .projectIds=[\"$NEW_PROJECT_ID\"]")"
+done
+```
+
+---
+
+## Limits
+
+Project limits vary by plan:
+
+| Plan | Maximum Projects |
+|------|------------------|
+| Free (trial) | 3 |
+| Teams | Unlimited |
+| Enterprise | Unlimited |
+
+<Note>
+Contact sales to increase limits or upgrade your plan.
+</Note>

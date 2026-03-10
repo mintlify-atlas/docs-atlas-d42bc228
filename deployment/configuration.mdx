@@ -1,0 +1,497 @@
+---
+title: Configuration
+description: Configure Bitwarden Server services using appsettings.json and global settings
+---
+
+## Overview
+
+Bitwarden Server services are configured through `appsettings.json` files and environment variables. Each service has its own configuration file with service-specific settings and shared global settings.
+
+## Configuration Files
+
+Each service has multiple configuration files that are loaded in order:
+
+1. `appsettings.json` - Base configuration
+2. `appsettings.{Environment}.json` - Environment-specific settings
+3. Environment variables - Override any setting
+
+<Info>
+  Settings are loaded in order with later sources overriding earlier ones. Environment variables have the highest precedence.
+</Info>
+
+## Global Settings
+
+All services share a common `globalSettings` section:
+
+```json appsettings.json
+{
+  "globalSettings": {
+    "selfHosted": true,
+    "siteName": "Bitwarden",
+    "projectName": "Api",
+    "sqlServer": {
+      "connectionString": "Server=localhost;Database=vault;User Id=sa;Password=YourPassword;"
+    },
+    "identityServer": {
+      "certificateThumbprint": "YOUR_CERTIFICATE_THUMBPRINT"
+    },
+    "dataProtection": {
+      "certificateThumbprint": "YOUR_CERTIFICATE_THUMBPRINT"
+    },
+    "storage": {
+      "connectionString": "DefaultEndpointsProtocol=https;AccountName=youraccountname;AccountKey=yourkey;"
+    },
+    "mail": {
+      "replyToEmail": "no-reply@example.com",
+      "sendGridApiKey": "YOUR_SENDGRID_KEY",
+      "smtp": {
+        "host": "smtp.example.com",
+        "port": 587,
+        "ssl": true,
+        "username": "smtp-user",
+        "password": "smtp-password"
+      }
+    },
+    "baseServiceUri": {
+      "api": "https://api.example.com",
+      "identity": "https://identity.example.com",
+      "admin": "https://admin.example.com",
+      "notifications": "https://notifications.example.com",
+      "sso": "https://sso.example.com",
+      "vault": "https://vault.example.com"
+    },
+    "serviceBus": {
+      "connectionString": "Endpoint=sb://yournamespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=yourkey",
+      "applicationCacheTopicName": "application-cache"
+    }
+  }
+}
+```
+
+### Core Settings
+
+<ParamField path="selfHosted" type="boolean" default="false">
+  Set to `true` for self-hosted deployments. Disables cloud-specific features and telemetry.
+</ParamField>
+
+<ParamField path="siteName" type="string" default="Bitwarden">
+  Display name shown in emails and UI.
+</ParamField>
+
+<ParamField path="projectName" type="string" required>
+  Service name (Api, Identity, Admin, etc.). Auto-set in Docker images.
+</ParamField>
+
+### Database Configuration
+
+<ParamField path="sqlServer.connectionString" type="string" required>
+  SQL Server connection string. Supports SQL Server, PostgreSQL, and MySQL.
+  
+  **Examples**:
+  ```
+  SQL Server: Server=localhost;Database=vault;User Id=sa;Password=pass;
+  PostgreSQL: Host=localhost;Database=vault;Username=postgres;Password=pass;
+  MySQL: Server=localhost;Database=vault;Uid=root;Pwd=pass;
+  ```
+</ParamField>
+
+<ParamField path="sqlServer.readOnlyConnectionString" type="string">
+  Optional read replica connection string for read-heavy operations.
+</ParamField>
+
+### Certificate Configuration
+
+<ParamField path="identityServer.certificateThumbprint" type="string" required>
+  SHA-1 thumbprint of certificate used for signing tokens. The certificate must:
+  - Be installed in the certificate store
+  - Have a private key
+  - Be valid (not expired)
+  
+  Generate thumbprint:
+  ```bash
+  openssl x509 -in certificate.crt -fingerprint -noout | tr -d ':'
+  ```
+</ParamField>
+
+<ParamField path="dataProtection.certificateThumbprint" type="string" required>
+  Certificate for ASP.NET Core Data Protection. Can be the same as Identity Server certificate.
+</ParamField>
+
+### Storage Configuration
+
+<ParamField path="storage.connectionString" type="string" required>
+  Blob storage connection string for attachments and sends.
+  
+  **Azure Blob Storage**:
+  ```
+  DefaultEndpointsProtocol=https;AccountName=account;AccountKey=key;
+  ```
+  
+  **Local Filesystem** (Development only):
+  ```
+  UseDevelopmentStorage=true
+  ```
+  
+  **AWS S3** (requires additional configuration):
+  ```
+  https://s3.amazonaws.com;AccessKey=key;SecretKey=secret;
+  ```
+</ParamField>
+
+<ParamField path="attachment.connectionString" type="string">
+  Separate storage for file attachments. Falls back to `storage.connectionString`.
+</ParamField>
+
+<ParamField path="send.connectionString" type="string">
+  Separate storage for Send files. Falls back to `storage.connectionString`.
+</ParamField>
+
+### Mail Configuration
+
+<AccordionGroup>
+  <Accordion title="SendGrid (Recommended)">
+    ```json
+    "mail": {
+      "replyToEmail": "no-reply@example.com",
+      "sendGridApiKey": "SG.xxxxxxxxxx"
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="SMTP">
+    ```json
+    "mail": {
+      "replyToEmail": "no-reply@example.com",
+      "smtp": {
+        "host": "smtp.gmail.com",
+        "port": 587,
+        "ssl": true,
+        "username": "user@example.com",
+        "password": "your-password"
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Amazon SES">
+    ```json
+    "mail": {
+      "replyToEmail": "no-reply@example.com",
+      "amazon": {
+        "accessKeyId": "AKIAIOSFODNN7EXAMPLE",
+        "accessKeySecret": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        "region": "us-east-1"
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Service URLs
+
+<ParamField path="baseServiceUri" type="object" required>
+  Public URLs for all services. Required for CORS, redirects, and inter-service communication.
+  
+  **All URLs must**:
+  - Use HTTPS in production
+  - Be publicly accessible
+  - Match your reverse proxy configuration
+</ParamField>
+
+### Message Bus Configuration
+
+<Tabs>
+  <Tab title="Azure Service Bus">
+    ```json
+    "serviceBus": {
+      "connectionString": "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=key",
+      "applicationCacheTopicName": "application-cache"
+    }
+    ```
+  </Tab>
+  
+  <Tab title="RabbitMQ">
+    ```json
+    "serviceBus": {
+      "connectionString": "amqp://username:password@localhost:5672",
+      "useRabbitMq": true
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Service-Specific Configuration
+
+### API Service
+
+```json appsettings.json
+{
+  "globalSettings": { /* ... */ },
+  "IpRateLimitOptions": {
+    "EnableEndpointRateLimiting": true,
+    "StackBlockedRequests": false,
+    "RealIpHeader": "X-Forwarded-For",
+    "ClientIdHeader": "X-ClientId",
+    "HttpStatusCode": 429,
+    "GeneralRules": [
+      {
+        "Endpoint": "post:*",
+        "Period": "1m",
+        "Limit": 60
+      },
+      {
+        "Endpoint": "post:/connect/token",
+        "Period": "1m",
+        "Limit": 10
+      }
+    ]
+  },
+  "importCiphersLimitation": {
+    "ciphersLimit": 40000,
+    "collectionRelationshipsLimit": 80000,
+    "collectionsLimit": 2000
+  }
+}
+```
+
+<ParamField path="IpRateLimitOptions" type="object">
+  Rate limiting configuration to prevent abuse:
+  
+  - `EnableEndpointRateLimiting` - Enable rate limiting
+  - `RealIpHeader` - Header containing client IP (behind proxy)
+  - `GeneralRules` - Array of rate limit rules by endpoint
+</ParamField>
+
+<ParamField path="importCiphersLimitation" type="object">
+  Limits for bulk vault imports:
+  
+  - `ciphersLimit` - Max items per import (default: 40000)
+  - `collectionRelationshipsLimit` - Max collection relationships (default: 80000)
+  - `collectionsLimit` - Max collections per import (default: 2000)
+</ParamField>
+
+### Identity Service
+
+```json appsettings.json
+{
+  "globalSettings": { /* ... */ },
+  "IpRateLimitOptions": {
+    "EnableEndpointRateLimiting": true,
+    "GeneralRules": [
+      {
+        "Endpoint": "post:/connect/token",
+        "Period": "1m",
+        "Limit": 10
+      },
+      {
+        "Endpoint": "post:/connect/token",
+        "Period": "1h",
+        "Limit": 100
+      }
+    ]
+  },
+  "IdentityServerOptions": {
+    "IssuerUri": "https://identity.example.com"
+  }
+}
+```
+
+<Warning>
+  Strict rate limiting on `/connect/token` is critical for preventing brute force attacks.
+</Warning>
+
+### Notifications Service
+
+```json appsettings.json
+{
+  "globalSettings": { /* ... */ },
+  "notificationHub": {
+    "connectionString": "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=DefaultFullSharedAccessSignature;SharedAccessKey=key",
+    "hubName": "bitwarden-hub"
+  }
+}
+```
+
+### SSO Service
+
+```json appsettings.json
+{
+  "globalSettings": { /* ... */ },
+  "SsoSettings": {
+    "CacheLifetimeInMinutes": 5,
+    "SamlCertificateLifetimeInYears": 10
+  }
+}
+```
+
+## Environment-Specific Configurations
+
+### Development
+
+```json appsettings.Development.json
+{
+  "globalSettings": {
+    "selfHosted": true,
+    "sqlServer": {
+      "connectionString": "Server=localhost;Database=vault_dev;User Id=sa;Password=dev_password;TrustServerCertificate=True;"
+    },
+    "storage": {
+      "connectionString": "UseDevelopmentStorage=true"
+    },
+    "mail": {
+      "smtp": {
+        "host": "localhost",
+        "port": 1025,
+        "ssl": false
+      }
+    },
+    "baseServiceUri": {
+      "api": "http://localhost:4000",
+      "identity": "http://localhost:33656",
+      "vault": "http://localhost:8080"
+    }
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug",
+      "Microsoft": "Information"
+    }
+  }
+}
+```
+
+### Production
+
+```json appsettings.Production.json
+{
+  "globalSettings": {
+    "selfHosted": true,
+    "baseServiceUri": {
+      "api": "https://api.vault.example.com",
+      "identity": "https://identity.vault.example.com",
+      "vault": "https://vault.example.com"
+    }
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Microsoft": "Warning"
+    }
+  }
+}
+```
+
+## Environment Variables
+
+Override any configuration using environment variables with double underscore notation:
+
+```bash
+# Format: Section__Property__SubProperty
+globalSettings__selfHosted=true
+globalSettings__sqlServer__connectionString="Server=db;Database=vault;"
+globalSettings__identityServer__certificateThumbprint="ABC123"
+```
+
+In Docker Compose:
+
+```yaml
+services:
+  api:
+    environment:
+      globalSettings__selfHosted: "true"
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};"
+      globalSettings__baseServiceUri__api: "https://${DOMAIN}/api"
+```
+
+See [Environment Variables](/deployment/environment-variables) for complete reference.
+
+## Configuration Validation
+
+Services validate configuration on startup. Common errors:
+
+<AccordionGroup>
+  <Accordion title="Certificate not found">
+    ```
+    System.InvalidOperationException: Certificate with thumbprint 'ABC123' not found
+    ```
+    
+    **Solution**: Ensure certificate is installed in correct store (My/Personal) and thumbprint is correct.
+  </Accordion>
+  
+  <Accordion title="Database connection failed">
+    ```
+    Microsoft.Data.SqlClient.SqlException: Cannot open database "vault"
+    ```
+    
+    **Solution**: 
+    - Verify database exists
+    - Check connection string credentials
+    - Ensure SQL Server is accessible
+    - Run database migrations
+  </Accordion>
+  
+  <Accordion title="Invalid connection string">
+    ```
+    System.ArgumentException: Invalid connection string
+    ```
+    
+    **Solution**: Check connection string format and escape special characters in passwords.
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Secrets Management" icon="lock">
+    - Never commit secrets to version control
+    - Use environment variables for sensitive data
+    - Consider using Azure Key Vault or HashiCorp Vault
+    - Rotate credentials regularly
+  </Card>
+  
+  <Card title="Certificate Security" icon="certificate">
+    - Use certificates from trusted CAs
+    - Store private keys securely
+    - Set appropriate permissions on certificate stores
+    - Monitor certificate expiration
+  </Card>
+  
+  <Card title="Rate Limiting" icon="shield">
+    - Enable rate limiting on all public endpoints
+    - Adjust limits based on usage patterns
+    - Monitor for unusual traffic
+    - Whitelist trusted IPs if needed
+  </Card>
+  
+  <Card title="Logging" icon="file-lines">
+    - Set appropriate log levels
+    - Never log sensitive data (passwords, tokens)
+    - Configure log retention
+    - Use structured logging
+  </Card>
+</CardGroup>
+
+## Configuration Templates
+
+Official configuration templates are available in the source repository:
+
+- [`src/Api/appsettings.json`](https://github.com/bitwarden/server/blob/main/src/Api/appsettings.json)
+- [`src/Identity/appsettings.json`](https://github.com/bitwarden/server/blob/main/src/Identity/appsettings.json)
+- [`src/Admin/appsettings.json`](https://github.com/bitwarden/server/blob/main/src/Admin/appsettings.json)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="code" href="/deployment/environment-variables">
+    Complete environment variable reference
+  </Card>
+  <Card title="Database Setup" icon="database" href="/deployment/database-setup">
+    Configure and initialize the database
+  </Card>
+  <Card title="SSL Certificates" icon="certificate" href="/deployment/ssl-certificates">
+    Set up SSL/TLS certificates
+  </Card>
+  <Card title="Operations" icon="gauge" href="/operations/health-checks">
+    Monitor and maintain your deployment
+  </Card>
+</CardGroup>

@@ -1,0 +1,266 @@
+---
+title: Local Development Setup
+description: Set up your local development environment for Bitwarden Server
+---
+
+This guide will help you set up your local development environment for working with the Bitwarden Server codebase.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **.NET SDK 8.0** - The server is built with .NET 8.0
+- **Docker** - For running local dependencies (databases, mail catcher)
+- **Docker Compose** - For orchestrating development containers
+- **Git** - For version control
+- **PowerShell** (optional) - For running setup scripts on Windows
+
+<Note>
+The recommended .NET version is **8.0.100** or later. Check `global.json` in the repository root for the exact version.
+</Note>
+
+## Development Container Setup
+
+Bitwarden Server includes development container configurations for easy setup.
+
+<Steps>
+
+<Step title="Clone the repository">
+```bash
+git clone https://github.com/bitwarden/server.git
+cd server
+```
+</Step>
+
+<Step title="Choose your dev container">
+
+There are multiple dev container configurations available in `.devcontainer/`:
+
+- **community_dev** - For community contributors (recommended)
+- **internal_dev** - For Bitwarden team members
+- **bitwarden_common** - Base configuration shared by others
+
+</Step>
+
+<Step title="Initialize data directories">
+
+The dev container will automatically create these directories:
+
+```bash
+mkdir -p dev/.data/keys
+mkdir -p dev/.data/mssql
+mkdir -p dev/.data/azurite
+mkdir -p dev/helpers/mssql
+```
+</Step>
+
+<Step title="Configure environment variables">
+
+Create a `dev/.env` file with your database password:
+
+```bash
+MSSQL_SA_PASSWORD=your_strong_password_here
+```
+</Step>
+
+<Step title="Set up secrets and certificates">
+
+Run the post-create setup script:
+
+```bash
+bash .devcontainer/community_dev/postCreateCommand.sh
+```
+
+You'll be prompted for:
+- **Installation ID** - Get from https://bitwarden.com/host
+- **Installation Key** - Get from https://bitwarden.com/host
+
+For local development, you can use test values:
+- Installation ID: `00000000-0000-0000-0000-000000000001`
+- Installation Key: (leave empty for local dev)
+
+</Step>
+
+<Step title="Run database migrations">
+
+```bash
+dotnet run --project ./util/MsSqlMigratorUtility "Server=localhost;Database=vault_dev;User Id=SA;Password=your_password;Encrypt=True;TrustServerCertificate=True"
+```
+</Step>
+
+</Steps>
+
+## Manual Setup (Without Dev Container)
+
+If you prefer not to use dev containers:
+
+<Steps>
+
+<Step title="Start required services">
+
+Using Docker Compose:
+
+```bash
+docker-compose -f .devcontainer/bitwarden_common/docker-compose.yml up -d
+```
+
+This starts:
+- **SQL Server 2022** - Main database (port 1433)
+- **MailCatcher** - Email testing (port 1080)
+
+</Step>
+
+<Step title="Configure secrets">
+
+Copy the example secrets file:
+
+```bash
+cp dev/secrets.json.example dev/secrets.json
+```
+
+Update connection strings in `dev/secrets.json`:
+
+```json
+{
+  "globalSettings": {
+    "sqlServer": {
+      "connectionString": "Server=localhost;Database=vault_dev;User Id=SA;Password=your_password;Encrypt=True;TrustServerCertificate=True"
+    },
+    "installation": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "key": ""
+    }
+  }
+}
+```
+</Step>
+
+<Step title="Run migrations">
+
+See the [Database Migrations guide](/development/database-migrations) for details.
+
+</Step>
+
+<Step title="Build the solution">
+
+```bash
+dotnet build bitwarden-server.sln
+```
+</Step>
+
+</Steps>
+
+## IDE Configuration
+
+### Visual Studio Code
+
+Recommended extensions are configured in `.vscode/extensions.json`:
+
+- **C# Dev Kit** - For C# development
+- **EditorConfig** - For consistent code formatting
+
+The dev container automatically installs these extensions.
+
+### JetBrains Rider / Visual Studio
+
+Open the solution file:
+
+```bash
+bitwarden-server.sln
+```
+
+Both IDEs will automatically detect the EditorConfig settings.
+
+## Running the API
+
+To run the API project locally:
+
+```bash
+cd src/Api
+dotnet run
+```
+
+The API will be available at `https://localhost:4000`.
+
+<Note>
+The API uses settings from `appsettings.Development.json` when running in development mode.
+</Note>
+
+## Running the Identity Service
+
+```bash
+cd src/Identity
+dotnet run
+```
+
+The Identity service will be available at `https://localhost:33656`.
+
+## Running Tests
+
+See the [Testing Guide](/development/testing) for comprehensive testing instructions.
+
+## Port Configuration
+
+The development environment uses these ports:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| API | 4000 | Main API server |
+| Identity | 33656 | Authentication service |
+| SQL Server | 1433 | Microsoft SQL Server |
+| MySQL | 3306 | MySQL (optional) |
+| PostgreSQL | 5432 | PostgreSQL (optional) |
+| MailCatcher | 1080 | Email testing UI |
+
+## Git Hooks
+
+Bitwarden uses git hooks for automatic code formatting:
+
+```bash
+git config --local core.hooksPath .git-hooks
+```
+
+This enables pre-commit hooks that run `dotnet format` automatically.
+
+## Troubleshooting
+
+### Database Connection Issues
+
+1. Ensure SQL Server is running:
+   ```bash
+   docker ps | grep mssql
+   ```
+
+2. Verify your connection string in `dev/secrets.json`
+
+3. Check SQL Server logs:
+   ```bash
+   docker logs bitwarden_mssql
+   ```
+
+### Build Errors
+
+1. Clean and restore:
+   ```bash
+   dotnet clean
+   dotnet restore
+   dotnet build
+   ```
+
+2. Verify .NET SDK version:
+   ```bash
+   dotnet --version
+   ```
+
+### Port Conflicts
+
+If ports are already in use, update the port mappings in:
+- `.devcontainer/community_dev/devcontainer.json` - forwardPorts section
+- `docker-compose.yml` - ports section
+
+## Next Steps
+
+- [Database Migrations](/development/database-migrations) - Learn how to create and run migrations
+- [Testing Guide](/development/testing) - Run and write tests
+- [Project Structure](/development/project-structure) - Understand the codebase organization
+- [Contribution Guide](/development/contribution-guide) - Submit your first contribution

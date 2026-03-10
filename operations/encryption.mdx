@@ -1,0 +1,609 @@
+---
+title: Encryption Implementation
+description: Understanding Bitwarden's encryption architecture, key management, and cryptographic operations
+---
+
+Bitwarden implements end-to-end encryption with a zero-knowledge architecture, meaning the server never has access to unencrypted vault data. This guide explains the encryption implementation, key management, and cryptographic operations.
+
+## Encryption Architecture
+
+### Zero-Knowledge Design
+
+Bitwarden's security model ensures:
+
+- **Client-side encryption:** All encryption/decryption happens on the client
+- **Server-blind storage:** Server stores only encrypted data
+- **Master password never transmitted:** Used only locally to derive encryption keys
+- **Account recovery requires user action:** Server cannot decrypt user data
+
+### Encryption Types
+
+Bitwarden supports multiple encryption schemes:
+
+**Implementation:** `src/Core/Utilities/EncryptedStringAttribute.cs:14`
+
+```csharp
+public static readonly Dictionary<EncryptionType, int> _encryptionTypeToRequiredPiecesMap = new()
+{
+    { EncryptionType.AesCbc256_B64, 2 },
+    { EncryptionType.AesCbc128_HmacSha256_B64, 3 },
+    { EncryptionType.AesCbc256_HmacSha256_B64, 3 },
+    { EncryptionType.Rsa2048_OaepSha256_B64, 1 },
+    { EncryptionType.Rsa2048_OaepSha1_B64, 1 },
+    { EncryptionType.Rsa2048_OaepSha256_HmacSha256_B64, 2 },
+    { EncryptionType.Rsa2048_OaepSha1_HmacSha256_B64, 2 }
+};
+```
+
+**Encryption Type Details:**
+
+| Type | Algorithm | Key Size | HMAC | Use Case |
+|------|-----------|----------|------|----------|
+| AesCbc256_B64 | AES-CBC | 256-bit | No | Legacy |
+| AesCbc128_HmacSha256_B64 | AES-CBC | 128-bit | SHA-256 | Standard |
+| AesCbc256_HmacSha256_B64 | AES-CBC | 256-bit | SHA-256 | Enhanced |
+| Rsa2048_OaepSha256_B64 | RSA-OAEP | 2048-bit | No | Asymmetric |
+
+### Encrypted String Format
+
+**Structure:**
+```
+<encryption-type>.<initialization-vector>.<ciphertext>.<mac>
+```
+
+**Example:**
+```
+2.abc123.def456.ghi789
+```
+
+Where:
+- `2` = Encryption type (AesCbc128_HmacSha256_B64)
+- `abc123` = Base64-encoded IV
+- `def456` = Base64-encoded ciphertext
+- `ghi789` = Base64-encoded MAC
+
+**Validation:** `src/Core/Utilities/EncryptedStringAttribute.cs:60`
+
+## User Encryption Keys
+
+### Account Encryption Versions
+
+Bitwarden supports two account encryption schemes:
+
+#### V1 Encryption (Legacy)
+
+**Key Derivation:**
+1. Master Password → PBKDF2 → Master Key
+2. Master Key → HKDF → Encryption Key + MAC Key
+3. Master Key → PBKDF2 → Master Password Hash (for authentication)
+
+**Stored Keys:**
+- Encrypted symmetric key
+- Public encryption key (RSA 2048-bit)
+- Private encryption key (encrypted with symmetric key)
+
+#### V2 Encryption (Current)
+
+**Enhanced Features:**
+- Separate signature keys (Ed25519 or RSA 2048-bit)
+- Improved key derivation
+- Support for trusted device encryption
+- Account recovery capabilities
+
+**Key Hierarchy:**
+```
+Master Password
+  └─> Master Key (PBKDF2)
+      ├─> Encryption Key (HKDF)
+      ├─> MAC Key (HKDF)
+      └─> Master Password Hash (PBKDF2)
+          └─> Used for authentication
+
+User Key (Random)
+  ├─> Encrypts vault data
+  └─> Protected by:
+      ├─> Master Key (password-based)
+      ├─> Device Key (trusted device)
+      └─> Admin Recovery Key (if enabled)
+
+Asymmetric Keys
+  ├─> Encryption Key Pair (RSA 2048-bit)
+  │   └─> For sharing
+  └─> Signature Key Pair (Ed25519/RSA 2048-bit)
+      └─> For verification
+```
+
+**Implementation:** `src/Core/KeyManagement/Models/Data/UserAccountKeysData.cs`
+
+```csharp
+public class UserAccountKeysData
+{
+    public string EncryptedPrivateKey { get; set; }
+    public string EncryptedPublicKey { get; set; }
+    
+    // V2 fields
+    public string? SignaturePrivateKey { get; set; }
+    public string? SignaturePublicKey { get; set; }
+    public string? SignatureKeyPairProof { get; set; }
+    
+    // Determine if V1 or V2
+    public bool IsV2Encryption => SignaturePrivateKey != null;
+}
+```
+
+### Key Rotation
+
+Bitwarden supports cryptographic key rotation:
+
+**When to Rotate:**
+- Master password change
+- Suspected key compromise
+- Compliance requirements
+- Migration to V2 encryption
+
+**Rotation Process:**
+
+<Steps>
+  <Step title="Generate New Keys">
+    Create new user key and asymmetric key pairs:
+    ```csharp
+    // Implementation: src/Core/KeyManagement/UserKey/Implementations/RotateUserAccountKeysCommand.cs
+    var newUserKey = GenerateRandomKey();
+    var newKeyPair = GenerateAsymmetricKeys();
+    ```
+  </Step>
+  
+  <Step title="Re-encrypt Vault Data">
+    Re-encrypt all ciphers, folders, and sends with new key:
+    ```csharp
+    foreach (var cipher in ciphers)
+    {
+        cipher.Data = ReEncrypt(cipher.Data, oldKey, newKey);
+    }
+    ```
+  </Step>
+  
+  <Step title="Update Shares and Emergency Access">
+    Re-encrypt shared items and emergency access keys:
+    ```csharp
+    UpdateSharedItems(newPublicKey);
+    UpdateEmergencyAccess(newPrivateKey);
+    ```
+  </Step>
+  
+  <Step title="Atomic Update">
+    Update all keys in a single transaction to maintain consistency.
+  </Step>
+</Steps>
+
+**Implementation:** `src/Core/KeyManagement/Kdf/Implementations/ChangeKdfCommand.cs`
+
+## Organization Encryption
+
+### Organization Keys
+
+**Key Structure:**
+```
+Organization Key (Random)
+  ├─> Encrypts organization vault data
+  └─> Protected by:
+      └─> User's public encryption key (for each member)
+```
+
+**Sharing Mechanism:**
+1. Organization key encrypted with each user's public key
+2. User decrypts org key with their private key
+3. User uses org key to decrypt organization items
+
+### Collection Encryption
+
+Collections use the organization key:
+
+```csharp
+// Collection data encrypted with organization key
+public class Collection
+{
+    public string Name { get; set; }  // Encrypted
+    public Guid OrganizationId { get; set; }
+}
+```
+
+**Access Control:**
+- Collection membership determines access
+- Encryption key shared via organization membership
+- Permissions enforced server-side
+- Data remains encrypted at rest
+
+## Data Protection Keys
+
+### ASP.NET Core Data Protection
+
+Bitwarden uses Data Protection for server-side sensitive data:
+
+**Configuration:** `src/Core/Settings/GlobalSettings.cs:548`
+
+```csharp
+public class DataProtectionSettings
+{
+    public string CertificateThumbprint { get; set; }
+    public string CertificatePassword { get; set; }
+    public string Directory { get; set; }  // /etc/bitwarden/core/aspnet-dataprotection
+}
+```
+
+### Protected Data Types
+
+**Server-side protection for:**
+- Temporary tokens (email verification, password reset)
+- Session state
+- Anti-forgery tokens
+- Organization sponsorship offers
+- Provider user invitations
+- Emergency access invitations
+
+**Token Factories:** `src/Core/Tokens/DataProtectorTokenFactory.cs`
+
+```csharp
+public class DataProtectorTokenFactory<T> : IDataProtectorTokenFactory<T> 
+    where T : Tokenable
+{
+    private readonly IDataProtector _dataProtector;
+    private readonly ILogger<DataProtectorTokenFactory<T>> _logger;
+    
+    public DataProtectorTokenFactory(
+        string clearTextPrefix, 
+        string purpose, 
+        IDataProtectionProvider dataProtectionProvider,
+        ILogger<DataProtectorTokenFactory<T>> logger)
+    {
+        _dataProtector = dataProtectionProvider.CreateProtector(purpose);
+        _logger = logger;
+    }
+}
+```
+
+### Data Protection Purposes
+
+**Purpose Strings:**
+
+| Purpose | Use Case | Implementation |
+|---------|----------|----------------|
+| OrganizationServiceDataProtector | Organization user invites | OrgUserInviteTokenable.cs:20 |
+| ProviderServiceDataProtector | Provider user invites | RegisterUserCommand.cs:80 |
+| RegistrationEmailVerificationTokenDataProtector | Email verification | RegistrationEmailVerificationTokenable.cs:18 |
+| SsoTokenDataProtector | SSO session tokens | SsoTokenable.cs:13 |
+| WebAuthnCredentialCreateDataProtector | WebAuthn credential creation | WebAuthnCredentialCreateOptionsTokenable.cs:16 |
+| EmergencyAccessInviteDataProtector | Emergency access invites | EmergencyAccessService.cs |
+
+## Certificate Management
+
+### Identity Server Certificates
+
+**Signing Certificates:**
+```json
+{
+  "identityServer": {
+    "certificateThumbprint": "ABC123...",
+    "certificatePassword": "CertPassword"
+  }
+}
+```
+
+**Requirements:**
+- RSA 2048-bit or higher
+- Valid for signing operations
+- Stored securely with restricted permissions
+
+### Data Protection Certificates
+
+**Configuration:**
+```json
+{
+  "dataProtection": {
+    "certificateThumbprint": "DEF456...",
+    "certificatePassword": "CertPassword",
+    "directory": "/etc/bitwarden/core/aspnet-dataprotection"
+  }
+}
+```
+
+**Certificate Generation:**
+```bash
+# Generate self-signed certificate for data protection
+openssl req -x509 -newkey rsa:4096 -sha256 -nodes \
+  -keyout dataprotection.key -out dataprotection.crt \
+  -subj "/CN=Bitwarden Data Protection" -days 3650
+
+# Convert to PFX
+openssl pkcs12 -export -out dataprotection.pfx \
+  -inkey dataprotection.key -in dataprotection.crt \
+  -password pass:YourSecurePassword
+
+# Install in certificate store
+# Or reference directly in configuration
+```
+
+<Warning>
+**Certificate Rotation:**
+
+Rotating data protection certificates requires careful planning:
+1. Add new certificate alongside old certificate
+2. Allow grace period for token expiration
+3. Remove old certificate
+4. Never delete old certificates if encrypted data exists
+</Warning>
+
+### Certificate Storage
+
+**Secure Storage:**
+```bash
+# Restrict certificate access
+chown root:bitwarden /etc/bitwarden/certificates/
+chmod 750 /etc/bitwarden/certificates/
+chmod 640 /etc/bitwarden/certificates/*.pfx
+```
+
+**Key Vault Integration:**
+
+For production, store certificates in a key vault:
+
+```csharp
+// Azure Key Vault integration
+services.AddDataProtection()
+    .PersistKeysToAzureBlobStorage(blobClient)
+    .ProtectKeysWithAzureKeyVault(keyVaultKeyId, credential);
+```
+
+## Encryption at Rest
+
+### Database Encryption
+
+**SQL Server Transparent Data Encryption (TDE):**
+
+<Steps>
+  <Step title="Create Master Key">
+    ```sql
+    USE master;
+    CREATE MASTER KEY ENCRYPTION BY PASSWORD = 'ComplexPassword123!';
+    ```
+  </Step>
+  
+  <Step title="Create Certificate">
+    ```sql
+    CREATE CERTIFICATE TDECert 
+    WITH SUBJECT = 'Bitwarden TDE Certificate',
+    EXPIRY_DATE = '2030-12-31';
+    ```
+  </Step>
+  
+  <Step title="Create Database Encryption Key">
+    ```sql
+    USE vault;
+    CREATE DATABASE ENCRYPTION KEY
+    WITH ALGORITHM = AES_256
+    ENCRYPTION BY SERVER CERTIFICATE TDECert;
+    ```
+  </Step>
+  
+  <Step title="Enable TDE">
+    ```sql
+    ALTER DATABASE vault SET ENCRYPTION ON;
+    ```
+  </Step>
+  
+  <Step title="Backup Certificate">
+    ```sql
+    BACKUP CERTIFICATE TDECert 
+    TO FILE = '/backups/TDECert.cer'
+    WITH PRIVATE KEY (
+        FILE = '/backups/TDECert_key.pvk',
+        ENCRYPTION BY PASSWORD = 'BackupCertPassword123!'
+    );
+    ```
+  </Step>
+</Steps>
+
+**Verification:**
+```sql
+-- Check encryption status
+SELECT 
+    db.name,
+    db.is_encrypted,
+    dm.encryption_state,
+    dm.percent_complete,
+    dm.key_algorithm,
+    dm.key_length
+FROM sys.databases db
+LEFT JOIN sys.dm_database_encryption_keys dm
+    ON db.database_id = dm.database_id
+WHERE db.name = 'vault';
+```
+
+### File Storage Encryption
+
+**Local Storage:**
+```bash
+# Encrypt attachment directory with LUKS
+cryptsetup luksFormat /dev/sdb1
+cryptsetup luksOpen /dev/sdb1 bitwarden_attachments
+mkfs.ext4 /dev/mapper/bitwarden_attachments
+mount /dev/mapper/bitwarden_attachments /etc/bitwarden/core/attachments
+```
+
+**Azure Blob Storage:**
+```json
+{
+  "attachment": {
+    "connectionString": "DefaultEndpointsProtocol=https;AccountName=storage;AccountKey=***;EndpointSuffix=core.windows.net",
+    "baseUrl": "https://storage.blob.core.windows.net/attachments/"
+  }
+}
+```
+
+Enable:
+- Storage Service Encryption (SSE)
+- Customer-managed keys (CMK) in Azure Key Vault
+- Private endpoints for secure access
+
+## Encryption Best Practices
+
+### Key Management
+
+<CardGroup cols={2}>
+  <Card title="Key Generation" icon="key">
+    - Use cryptographically secure random number generators
+    - Generate keys with appropriate length (AES-256, RSA-2048+)
+    - Never reuse keys across different purposes
+  </Card>
+  
+  <Card title="Key Storage" icon="vault">
+    - Store keys encrypted when at rest
+    - Use hardware security modules (HSM) for production
+    - Implement key rotation policies
+    - Backup encryption keys securely
+  </Card>
+  
+  <Card title="Key Distribution" icon="share-nodes">
+    - Use asymmetric encryption for key exchange
+    - Validate recipient identity before sharing
+    - Implement secure channel for key transmission
+    - Audit all key access and distribution
+  </Card>
+  
+  <Card title="Key Destruction" icon="trash">
+    - Securely delete keys when no longer needed
+    - Use cryptographic erasure techniques
+    - Maintain key destruction audit trail
+    - Verify data encrypted with key is also destroyed
+  </Card>
+</CardGroup>
+
+### Cryptographic Operations
+
+**Do's:**
+- Use authenticated encryption (AES-GCM, AES-CBC + HMAC)
+- Generate unique IVs for each encryption operation
+- Use constant-time comparison for MACs
+- Implement proper error handling without leaking information
+
+**Don'ts:**
+- Never roll your own crypto
+- Don't use ECB mode
+- Don't reuse IVs with the same key
+- Don't use MD5 or SHA-1 for security purposes
+- Don't store passwords in reversible encryption
+
+### Algorithm Selection
+
+**Recommended:**
+
+| Use Case | Algorithm | Key Size |
+|----------|-----------|----------|
+| Symmetric encryption | AES-CBC + HMAC-SHA256 | 256-bit |
+| Symmetric encryption (AEAD) | AES-GCM | 256-bit |
+| Asymmetric encryption | RSA-OAEP | 2048-bit+ |
+| Digital signatures | RSA-PSS or Ed25519 | 2048-bit+ / 256-bit |
+| Key derivation | PBKDF2 or Argon2id | N/A |
+| Hashing | SHA-256 or SHA-512 | N/A |
+
+## Troubleshooting Encryption Issues
+
+### Invalid Encryption String
+
+**Error:** `Invalid encryption string format`
+
+**Causes:**
+- Corrupted database data
+- Incomplete migration
+- Incorrect encryption type
+
+**Diagnostic:**
+```sql
+-- Check for malformed encrypted strings
+SELECT Id, Email, Name
+FROM [dbo].[Cipher]
+WHERE Name IS NOT NULL 
+AND Name NOT LIKE '[0-9].[%].[%]';
+```
+
+### Key Mismatch Errors
+
+**Symptoms:**
+- Cannot decrypt vault items
+- "Invalid key" errors
+- Items appear empty
+
+**Resolution:**
+1. Verify user has correct encryption key
+2. Check for key rotation issues
+3. Validate organization membership
+4. Restore from backup if corruption detected
+
+### Certificate Issues
+
+**Error:** `Certificate not found` or `Invalid certificate`
+
+**Troubleshooting:**
+```bash
+# List installed certificates
+certutil -store My
+
+# Verify certificate thumbprint
+openssl x509 -in certificate.crt -noout -fingerprint -sha1
+
+# Check certificate validity
+openssl x509 -in certificate.crt -noout -dates
+```
+
+## Migration to V2 Encryption
+
+### Migration Process
+
+For users still on V1 encryption:
+
+<Steps>
+  <Step title="Check Current Version">
+    ```sql
+    SELECT 
+        Email,
+        CASE 
+            WHEN PrivateKey LIKE '6.%' THEN 'V2'
+            ELSE 'V1'
+        END AS EncryptionVersion
+    FROM [dbo].[User]
+    WHERE Email = 'user@example.com';
+    ```
+  </Step>
+  
+  <Step title="Initiate Migration">
+    User must log in to web vault and complete migration flow:
+    - Verify master password
+    - Generate new V2 keys
+    - Re-encrypt vault data
+  </Step>
+  
+  <Step title="Verify Migration">
+    ```sql
+    SELECT Email, PrivateKey, PublicKey
+    FROM [dbo].[User]
+    WHERE Email = 'user@example.com';
+    -- V2 users have PrivateKey starting with '6.'
+    ```
+  </Step>
+</Steps>
+
+**Feature Flags:**
+```csharp
+// src/Core/Constants.cs:208
+public const string EnableAccountEncryptionV2KeyConnectorRegistration = 
+    "enable-account-encryption-v2-key-connector-registration";
+public const string EnableAccountEncryptionV2JitPasswordRegistration = 
+    "enable-account-encryption-v2-jit-password-registration";
+```
+
+## Related Resources
+
+- [Security Best Practices](/operations/security-best-practices)
+- [Compliance and Audit Logging](/operations/compliance)
+- [Backup and Restore](/operations/backup-restore)
+- [Key Management Configuration](/configuration/encryption)

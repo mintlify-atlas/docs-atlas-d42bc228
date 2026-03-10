@@ -1,0 +1,393 @@
+---
+title: Logging Configuration
+description: Configure logging levels, formats, and destinations for Bitwarden Server
+---
+
+Bitwarden Server uses Serilog for structured logging with support for file-based logging, console output, and various log levels. Proper logging configuration is essential for troubleshooting and monitoring.
+
+## Logging System Overview
+
+The logging system is implemented in `src/Core/Utilities/LoggerFactoryExtensions.cs` and provides:
+
+- Structured JSON logging
+- File-based log rotation
+- Configurable log levels
+- Development vs. Production modes
+- ASP.NET Core integration
+
+## Configuration
+
+### File Logging Configuration
+
+Bitwarden Server supports two configuration approaches for file logging:
+
+#### Modern Configuration (Recommended)
+
+Add to your `appsettings.json`:
+
+```json
+{
+  "Logging": {
+    "PathFormat": "/etc/bitwarden/logs/{Date}.txt",
+    "FileSizeLimitBytes": 10485760,
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information",
+      "System": "Warning"
+    }
+  }
+}
+```
+
+#### Legacy Configuration
+
+Alternatively, configure under `GlobalSettings`:
+
+```json
+{
+  "globalSettings": {
+    "projectName": "Api",
+    "logDirectory": "/etc/bitwarden/logs",
+    "logDirectoryByProject": true,
+    "logRollBySizeLimit": 10485760
+  }
+}
+```
+
+### Configuration Options
+
+<ParamField path="PathFormat" type="string" default="/etc/bitwarden/logs/{Date}.txt">
+  Path template for log files. Use `{Date}` for daily rotation or a static filename for size-based rotation.
+</ParamField>
+
+<ParamField path="FileSizeLimitBytes" type="number" default="null">
+  Maximum file size in bytes before rotation. If set, logs rotate by size instead of date. Recommended: `10485760` (10 MB).
+</ParamField>
+
+<ParamField path="LogDirectoryByProject" type="boolean" default="true">
+  When using legacy configuration, creates separate subdirectories for each project (Api, Identity, etc.).
+</ParamField>
+
+<ParamField path="LogRollBySizeLimit" type="number" default="null">
+  Legacy option for size-based rotation in bytes.
+</ParamField>
+
+## Log Levels
+
+### Available Log Levels
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.EntityFrameworkCore": "Warning",
+      "System": "Warning",
+      "Bit.Api": "Debug",
+      "Bit.Core": "Information"
+    }
+  }
+}
+```
+
+**Log Level Hierarchy:**
+1. `Trace` - Most verbose, includes all details
+2. `Debug` - Debugging information
+3. `Information` - General operational messages
+4. `Warning` - Warning messages
+5. `Error` - Error messages
+6. `Critical` - Critical failures
+7. `None` - Logging disabled
+
+### Recommended Production Levels
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning",
+      "Bit.Core.Services": "Information",
+      "Bit.Core.Utilities": "Information",
+      "Microsoft": "Warning",
+      "Microsoft.Hosting.Lifetime": "Information",
+      "System": "Warning"
+    }
+  }
+}
+```
+
+<Warning>
+Setting log levels to `Trace` or `Debug` in production can significantly impact performance and generate large log files. Use these levels only for troubleshooting specific issues.
+</Warning>
+
+## Service-Specific Configuration
+
+### API Service
+
+Default location: `src/Api/appsettings.json`
+
+```json
+{
+  "globalSettings": {
+    "projectName": "Api"
+  },
+  "Logging": {
+    "PathFormat": "/etc/bitwarden/logs/api/{Date}.txt"
+  }
+}
+```
+
+### Identity Service
+
+Default location: `src/Identity/appsettings.json`
+
+```json
+{
+  "globalSettings": {
+    "projectName": "Identity"
+  },
+  "Logging": {
+    "PathFormat": "/etc/bitwarden/logs/identity/{Date}.txt"
+  }
+}
+```
+
+### Other Services
+
+Each service (Admin, Events, Notifications, Icons, SSO, SCIM) supports the same logging configuration.
+
+## Log File Locations
+
+### Default Paths
+
+| Service | Default Path |
+|---------|-------------|
+| API | `/etc/bitwarden/logs/Api/{Date}.txt` |
+| Identity | `/etc/bitwarden/logs/Identity/{Date}.txt` |
+| Admin | `/etc/bitwarden/logs/Admin/{Date}.txt` |
+| Events | `/etc/bitwarden/logs/Events/{Date}.txt` |
+| Notifications | `/etc/bitwarden/logs/Notifications/{Date}.txt` |
+| Icons | `/etc/bitwarden/logs/Icons/{Date}.txt` |
+| SSO | `/etc/bitwarden/logs/Sso/{Date}.txt` |
+| SCIM | `/etc/bitwarden/logs/Scim/{Date}.txt` |
+
+### Log Rotation
+
+**Daily Rotation (Default):**
+```
+api_2026-03-10.log
+api_2026-03-11.log
+api_2026-03-12.log
+```
+
+**Size-Based Rotation:**
+```
+api.txt
+api_001.txt
+api_002.txt
+```
+
+## Development vs. Production
+
+### Development Mode
+
+File logging is **automatically disabled** in development environments (configured in `LoggerFactoryExtensions.cs:20`):
+
+```csharp
+if (context.HostingEnvironment.IsDevelopment())
+{
+    return; // No file logging
+}
+```
+
+Development environments use console logging only.
+
+### Production Mode
+
+Production deployments enable file logging with the configured settings. Logs are written to the specified directory.
+
+## Request Logging
+
+Bitwarden Server includes request logging middleware (`src/SharedWeb/Utilities/RequestLoggingMiddleware.cs`) that logs:
+
+- Request method and path
+- Response status codes
+- Request duration
+- User context (if authenticated)
+
+**Enable in Startup:**
+```csharp
+app.UseMiddleware<RequestLoggingMiddleware>();
+```
+
+## Event Logging
+
+Bitwarden uses a separate event logging system for audit events. See `EventLogging` configuration in GlobalSettings.
+
+```json
+{
+  "globalSettings": {
+    "eventLogging": {
+      "azureServiceBus": {
+        "connectionString": "SECRET",
+        "eventTopicName": "events",
+        "integrationTopicName": "integrations"
+      },
+      "rabbitMq": {
+        "hostName": "rabbitmq",
+        "username": "guest",
+        "password": "SECRET"
+      }
+    }
+  }
+}
+```
+
+See [Compliance and Audit Logging](/operations/compliance) for details.
+
+## Log Management
+
+### Viewing Logs
+
+<Steps>
+  <Step title="Access Log Directory">
+    Navigate to the configured log directory:
+    ```bash
+    cd /etc/bitwarden/logs
+    ```
+  </Step>
+  
+  <Step title="View Recent Logs">
+    View the most recent log entries:
+    ```bash
+    tail -f Api/$(date +%Y-%m-%d).txt
+    ```
+  </Step>
+  
+  <Step title="Search Logs">
+    Search for specific patterns:
+    ```bash
+    grep -i "error" Api/*.txt
+    ```
+  </Step>
+</Steps>
+
+### Log Retention
+
+Implement a log retention policy to prevent disk space issues:
+
+```bash
+#!/bin/bash
+# Delete logs older than 30 days
+find /etc/bitwarden/logs -name "*.txt" -mtime +30 -delete
+```
+
+Schedule with cron:
+```
+0 2 * * * /usr/local/bin/cleanup-logs.sh
+```
+
+### Centralized Logging
+
+For production environments, consider shipping logs to a centralized logging system:
+
+**Fluentd/Fluent Bit:**
+```yaml
+<source>
+  @type tail
+  path /etc/bitwarden/logs/**/*.txt
+  pos_file /var/log/fluentd/bitwarden.pos
+  tag bitwarden
+  format json
+</source>
+
+<match bitwarden>
+  @type elasticsearch
+  host elasticsearch
+  port 9200
+  index_name bitwarden
+</match>
+```
+
+**Filebeat:**
+```yaml
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /etc/bitwarden/logs/**/*.txt
+  json.keys_under_root: true
+  json.add_error_key: true
+
+output.elasticsearch:
+  hosts: ["elasticsearch:9200"]
+  index: "bitwarden-%{+yyyy.MM.dd}"
+```
+
+## Troubleshooting Logging Issues
+
+### Logs Not Being Created
+
+**Check Permissions:**
+```bash
+ls -la /etc/bitwarden/logs
+chown -R bitwarden:bitwarden /etc/bitwarden/logs
+chmod -R 755 /etc/bitwarden/logs
+```
+
+**Verify Configuration:**
+```bash
+# Check if PathFormat is set
+docker exec bitwarden-api cat /app/appsettings.json | grep -A 5 Logging
+```
+
+### Log Files Too Large
+
+**Enable Size-Based Rotation:**
+```json
+{
+  "Logging": {
+    "FileSizeLimitBytes": 10485760
+  }
+}
+```
+
+**Reduce Log Level:**
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Warning"
+    }
+  }
+}
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Appropriate Levels" icon="layer-group">
+    Set `Information` for important operations, `Warning` for recoverable issues, `Error` for failures.
+  </Card>
+  
+  <Card title="Rotate Regularly" icon="rotate">
+    Use daily rotation for high-volume services, size-based for lower volume.
+  </Card>
+  
+  <Card title="Monitor Disk Space" icon="hard-drive">
+    Set up alerts when log directories exceed 80% capacity.
+  </Card>
+  
+  <Card title="Centralize in Production" icon="server">
+    Ship logs to a centralized system for better analysis and retention.
+  </Card>
+</CardGroup>
+
+## Related Resources
+
+- [Health Check Configuration](/operations/health-checks)
+- [Metrics and Telemetry](/operations/metrics)
+- [Troubleshooting Guide](/operations/troubleshooting)

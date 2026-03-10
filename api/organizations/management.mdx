@@ -1,0 +1,397 @@
+---
+title: "Organization Management API"
+description: "Create and manage Bitwarden organizations"
+---
+
+## Overview
+
+Organizations enable teams to securely share vault items, manage users, and enforce security policies.
+
+## Get Organization
+
+Retrieve organization details.
+
+```bash
+GET /organizations/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Organization unique identifier
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Organization name
+</ResponseField>
+
+<ResponseField name="businessName" type="string">
+  Legal business name
+</ResponseField>
+
+<ResponseField name="billingEmail" type="string" required>
+  Email for billing notifications
+</ResponseField>
+
+<ResponseField name="planType" type="number" required>
+  Subscription plan type
+</ResponseField>
+
+<ResponseField name="seats" type="number">
+  Number of user seats
+</ResponseField>
+
+<ResponseField name="maxCollections" type="number">
+  Maximum collections allowed
+</ResponseField>
+
+<ResponseField name="useGroups" type="boolean">
+  Groups feature enabled
+</ResponseField>
+
+<ResponseField name="useDirectory" type="boolean">
+  Directory sync enabled
+</ResponseField>
+
+<ResponseField name="useEvents" type="boolean">
+  Event logs enabled
+</ResponseField>
+
+<ResponseField name="useTotp" type="boolean">
+  TOTP 2FA enabled
+</ResponseField>
+
+<ResponseField name="use2fa" type="boolean">
+  Organization 2FA policy enabled
+</ResponseField>
+
+<ResponseField name="useApi" type="boolean">
+  API access enabled
+</ResponseField>
+
+<ResponseField name="usePolicies" type="boolean">
+  Policies feature enabled
+</ResponseField>
+
+<ResponseField name="useSso" type="boolean">
+  SSO authentication enabled
+</ResponseField>
+
+<ResponseField name="useSecretsManager" type="boolean">
+  Secrets Manager enabled
+</ResponseField>
+
+---
+
+## List User's Organizations
+
+Retrieve all organizations the authenticated user belongs to.
+
+```bash
+GET /organizations
+```
+
+### Response
+
+Returns a list of organizations with the user's role and permissions.
+
+---
+
+## Create Organization
+
+Create a new organization (Cloud only).
+
+```bash
+POST /organizations
+```
+
+<ParamField body="name" type="string" required>
+  Organization name
+</ParamField>
+
+<ParamField body="businessName" type="string">
+  Legal business name
+</ParamField>
+
+<ParamField body="billingEmail" type="string" required>
+  Billing email address
+</ParamField>
+
+<ParamField body="planType" type="number" required>
+  Plan type (0=Free, 1=FamiliesAnnually, etc.)
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Encrypted organization key
+</ParamField>
+
+<ParamField body="keys" type="object">
+  Organization key pair
+</ParamField>
+
+<ParamField body="collectionName" type="string">
+  Initial collection name
+</ParamField>
+
+<Note>
+This endpoint is only available on Bitwarden Cloud, not self-hosted instances.
+</Note>
+
+---
+
+## Update Organization
+
+Update organization information.
+
+```bash
+PUT /organizations/{organizationId}
+```
+
+<ParamField path="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Organization name
+</ParamField>
+
+<ParamField body="businessName" type="string">
+  Legal business name
+</ParamField>
+
+<ParamField body="billingEmail" type="string">
+  Billing email (requires subscription editing permission)
+</ParamField>
+
+<ParamField body="identifier" type="string">
+  Organization identifier for SSO
+</ParamField>
+
+<Info>
+Changing the billing email requires the `EditSubscription` permission.
+</Info>
+
+---
+
+## Get Auto-Enroll Status
+
+Check if organization has auto-enroll policy enabled.
+
+```bash
+GET /organizations/{identifier}/auto-enroll-status
+```
+
+<ParamField path="identifier" type="string" required>
+  Organization identifier
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string">
+  Organization ID
+</ResponseField>
+
+<ResponseField name="resetPasswordEnabled" type="boolean">
+  Whether auto-enroll is enabled
+</ResponseField>
+
+---
+
+## Leave Organization
+
+Remove yourself from an organization.
+
+```bash
+POST /organizations/{id}/leave
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<Warning>
+You cannot leave an organization if:
+- You are the only owner
+- You use Key Connector SSO
+- Your account is claimed by the organization
+</Warning>
+
+---
+
+## Delete Organization
+
+Permanently delete an organization.
+
+```bash
+DELETE /organizations/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+<Warning>
+This permanently deletes the organization and all associated data. This action cannot be undone.
+</Warning>
+
+---
+
+## Organization API Keys
+
+### Get API Key
+
+Retrieve organization API key.
+
+```bash
+POST /organizations/{id}/api-key
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Rotate API Key
+
+Generate a new API key.
+
+```bash
+POST /organizations/{id}/rotate-api-key
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+---
+
+## License Management
+
+### Apply License
+
+Apply or update organization license (Self-hosted only).
+
+```bash
+POST /organizations/license
+```
+
+<ParamField body="license" type="string" required>
+  License file contents
+</ParamField>
+
+### Download License
+
+Download organization license file.
+
+```bash
+GET /organizations/{id}/license
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField query="installationId" type="string" required>
+  Installation ID
+</ParamField>
+
+---
+
+## Storage Management
+
+### Add Storage
+
+Purchase additional storage for organization (Cloud only).
+
+```bash
+POST /organizations/{id}/storage
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="storageGbAdjustment" type="number" required>
+  GB to add (can be negative to reduce)
+</ParamField>
+
+---
+
+## SSO Configuration
+
+### Delete SSO User
+
+Remove SSO link for a user in the organization.
+
+```bash
+DELETE /accounts/sso/{organizationId}
+```
+
+<ParamField path="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+---
+
+## Organization Types
+
+### User Roles
+
+| Type | Value | Description |
+|------|-------|-------------|
+| Owner | 0 | Full administrative access |
+| Admin | 1 | Administrative access (can be limited) |
+| User | 2 | Standard user |
+| Manager | 3 | Manage assigned collections |
+| Custom | 4 | Custom permissions |
+
+### Plan Types
+
+| Type | Value | Description |
+|------|-------|-------------|
+| Free | 0 | Free organization (2 users) |
+| FamiliesAnnually | 1 | Families plan |
+| TeamsMonthly | 2 | Teams plan (monthly) |
+| TeamsAnnually | 3 | Teams plan (annual) |
+| EnterpriseMonthly | 4 | Enterprise (monthly) |
+| EnterpriseAnnually | 5 | Enterprise (annual) |
+
+---
+
+## Permissions
+
+Custom users can have granular permissions:
+
+```json
+{
+  "accessEventLogs": false,
+  "accessImportExport": false,
+  "accessReports": false,
+  "createNewCollections": false,
+  "editAnyCollection": false,
+  "deleteAnyCollection": false,
+  "editAssignedCollections": true,
+  "deleteAssignedCollections": false,
+  "manageGroups": false,
+  "managePolicies": false,
+  "manageSso": false,
+  "manageUsers": false,
+  "manageResetPassword": false,
+  "manageScim": false
+}
+```

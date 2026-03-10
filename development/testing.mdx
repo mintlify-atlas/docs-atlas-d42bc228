@@ -1,0 +1,502 @@
+---
+title: Testing Guide
+description: Guide to running and writing tests for Bitwarden Server
+---
+
+Bitwarden Server uses **xUnit** as its primary testing framework, with **AutoFixture** for test data generation and **NSubstitute** for mocking.
+
+## Test Project Structure
+
+The `test/` directory contains 23 test projects organized by the code they test:
+
+```
+test/
+├── Api.Test/                    # Unit tests for API
+├── Api.IntegrationTest/         # Integration tests for API
+├── Core.Test/                   # Unit tests for Core library
+├── Core.IntegrationTest/        # Integration tests for Core
+├── Identity.Test/               # Unit tests for Identity service
+├── Identity.IntegrationTest/    # Integration tests for Identity
+├── Infrastructure.Dapper.Test/  # Dapper repository tests
+├── Infrastructure.EFIntegration.Test/  # EF Core integration tests
+├── Admin.Test/                  # Admin service tests
+├── Billing.Test/                # Billing service tests
+├── Events.Test/                 # Events service tests
+├── Common/                      # Shared test utilities
+└── IntegrationTestCommon/       # Shared integration test utilities
+```
+
+## Running Tests
+
+### Run All Tests
+
+```bash
+# From repository root
+dotnet test
+```
+
+### Run Specific Test Project
+
+```bash
+# Unit tests only
+dotnet test test/Core.Test/Core.Test.csproj
+
+# Integration tests
+dotnet test test/Api.IntegrationTest/Api.IntegrationTest.csproj
+```
+
+### Run Tests by Filter
+
+```bash
+# Run all tests containing "User" in the name
+dotnet test --filter "FullyQualifiedName~User"
+
+# Run all tests in a specific namespace
+dotnet test --filter "FullyQualifiedName~Bit.Core.Test.Vault"
+
+# Run a specific test method
+dotnet test --filter "FullyQualifiedName=Bit.Core.Test.NotificationCenter.Commands.CreateNotificationCommandTest.CreateAsync_Authorized_NotificationCreated"
+```
+
+### Run Tests with Coverage
+
+```bash
+dotnet test /p:CollectCoverage=true /p:CoverletOutputFormat=opencover
+```
+
+## Test Framework Components
+
+### xUnit
+
+All tests use xUnit as the test runner:
+
+```xml test/Core.Test/Core.Test.csproj
+<PackageReference Include="xunit" Version="$(XUnitVersion)" />
+<PackageReference Include="xunit.runner.visualstudio" Version="$(XUnitRunnerVisualStudioVersion)" />
+```
+
+### AutoFixture
+
+AutoFixture generates test data automatically:
+
+```xml
+<PackageReference Include="AutoFixture.Xunit2" Version="$(AutoFixtureXUnit2Version)" />
+<PackageReference Include="AutoFixture.AutoNSubstitute" Version="$(AutoFixtureAutoNSubstituteVersion)" />
+```
+
+### NSubstitute
+
+NSubstitute provides mocking capabilities:
+
+```xml
+<PackageReference Include="NSubstitute" Version="$(NSubstituteVersion)" />
+```
+
+## Writing Unit Tests
+
+### Basic Test Structure
+
+Here's an example from the codebase:
+
+```csharp test/Core.Test/NotificationCenter/Commands/CreateNotificationCommandTest.cs
+using Bit.Core.NotificationCenter.Commands;
+using Bit.Core.NotificationCenter.Entities;
+using Bit.Test.Common.AutoFixture.Attributes;
+using NSubstitute;
+using Xunit;
+
+namespace Bit.Core.Test.NotificationCenter.Commands;
+
+[SutProviderCustomize]
+[NotificationCustomize]
+public class CreateNotificationCommandTest
+{
+    [Theory]
+    [BitAutoData]
+    public async Task CreateAsync_Authorized_NotificationCreated(
+        SutProvider<CreateNotificationCommand> sutProvider,
+        Notification notification)
+    {
+        // Arrange
+        Setup(sutProvider, notification, authorized: true);
+
+        // Act
+        var newNotification = await sutProvider.Sut.CreateAsync(notification);
+
+        // Assert
+        Assert.Equal(notification, newNotification);
+        Assert.Equal(DateTime.UtcNow, notification.CreationDate, TimeSpan.FromMinutes(1));
+        Assert.Equal(notification.CreationDate, notification.RevisionDate);
+    }
+
+    [Theory]
+    [BitAutoData]
+    public async Task CreateAsync_AuthorizationFailed_NotFoundException(
+        SutProvider<CreateNotificationCommand> sutProvider,
+        Notification notification)
+    {
+        // Arrange
+        Setup(sutProvider, notification, authorized: false);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<NotFoundException>(
+            () => sutProvider.Sut.CreateAsync(notification)
+        );
+    }
+
+    private static void Setup(
+        SutProvider<CreateNotificationCommand> sutProvider,
+        Notification notification,
+        bool authorized = false)
+    {
+        sutProvider.GetDependency<INotificationRepository>()
+            .CreateAsync(notification)
+            .Returns(notification);
+            
+        sutProvider.GetDependency<IAuthorizationService>()
+            .AuthorizeAsync(Arg.Any<ClaimsPrincipal>(), notification, Arg.Any<IEnumerable<IAuthorizationRequirement>>())
+            .Returns(authorized ? AuthorizationResult.Success() : AuthorizationResult.Failed());
+    }
+}
+```
+
+### Using BitAutoData
+
+The `[BitAutoData]` attribute combines xUnit's `[InlineData]` with AutoFixture:
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task TestMethod_Scenario_ExpectedResult(
+    SutProvider<ServiceUnderTest> sutProvider,
+    User user,  // Auto-generated by AutoFixture
+    Organization org,  // Auto-generated by AutoFixture
+    string customValue)  // Auto-generated by AutoFixture
+{
+    // AutoFixture automatically creates realistic test data
+    Assert.NotNull(user.Email);
+    Assert.NotEqual(Guid.Empty, org.Id);
+}
+```
+
+### SutProvider Pattern
+
+`SutProvider` (System Under Test Provider) automatically mocks dependencies:
+
+```csharp
+public async Task TestMethod(
+    SutProvider<UserService> sutProvider)  // SutProvider creates UserService with mocked dependencies
+{
+    // Get the service under test
+    var userService = sutProvider.Sut;
+    
+    // Get a mocked dependency
+    var userRepository = sutProvider.GetDependency<IUserRepository>();
+    
+    // Configure the mock
+    userRepository.GetByIdAsync(Arg.Any<Guid>())
+        .Returns(new User { Id = Guid.NewGuid() });
+    
+    // Act
+    var result = await userService.GetUserByIdAsync(Guid.NewGuid());
+    
+    // Assert
+    Assert.NotNull(result);
+}
+```
+
+### Verifying Mock Interactions
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task SaveUser_UpdatesRepository(
+    SutProvider<UserService> sutProvider,
+    User user)
+{
+    // Act
+    await sutProvider.Sut.SaveUserAsync(user);
+    
+    // Assert - verify the repository was called
+    await sutProvider.GetDependency<IUserRepository>()
+        .Received(1)
+        .ReplaceAsync(user);
+    
+    // Assert - verify push notification was sent
+    await sutProvider.GetDependency<IPushNotificationService>()
+        .Received(1)
+        .PushSyncAsync(user.Id);
+}
+```
+
+## Writing Integration Tests
+
+Integration tests verify that components work together correctly.
+
+### Database Integration Tests
+
+Integration tests use real database connections:
+
+```csharp
+public class UserRepositoryTests : IClassFixture<DatabaseFixture>
+{
+    private readonly DatabaseFixture _fixture;
+    
+    public UserRepositoryTests(DatabaseFixture fixture)
+    {
+        _fixture = fixture;
+    }
+    
+    [Fact]
+    public async Task CreateUser_PersistsToDatabase()
+    {
+        // Arrange
+        var repository = _fixture.GetService<IUserRepository>();
+        var user = new User
+        {
+            Email = "test@example.com",
+            Name = "Test User"
+        };
+        
+        // Act
+        var created = await repository.CreateAsync(user);
+        
+        // Assert
+        var retrieved = await repository.GetByIdAsync(created.Id);
+        Assert.NotNull(retrieved);
+        Assert.Equal(user.Email, retrieved.Email);
+    }
+}
+```
+
+### API Integration Tests
+
+API integration tests make HTTP requests to test endpoints:
+
+```csharp
+public class AccountsControllerTest : IClassFixture<ApiApplicationFactory>
+{
+    private readonly HttpClient _client;
+    
+    public AccountsControllerTest(ApiApplicationFactory factory)
+    {
+        _client = factory.CreateClient();
+    }
+    
+    [Fact]
+    public async Task Register_ValidRequest_ReturnsOk()
+    {
+        // Arrange
+        var request = new RegisterRequest
+        {
+            Email = "newuser@example.com",
+            MasterPasswordHash = "hash"
+        };
+        
+        // Act
+        var response = await _client.PostAsJsonAsync("/api/accounts/register", request);
+        
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+}
+```
+
+## Test Data Generation
+
+### Custom AutoFixture Customizations
+
+Create customizations for complex entities:
+
+```csharp
+public class UserCustomization : ICustomization
+{
+    public void Customize(IFixture fixture)
+    {
+        fixture.Customize<User>(composer => composer
+            .With(u => u.Email, () => fixture.Create<MailAddress>().Address)
+            .With(u => u.EmailVerified, true)
+            .Without(u => u.MasterPassword));
+    }
+}
+```
+
+Use it in tests:
+
+```csharp
+[Theory]
+[BitAutoData(typeof(UserCustomization))]
+public async Task TestWithCustomUser(User user)
+{
+    Assert.True(user.EmailVerified);
+    Assert.Null(user.MasterPassword);
+}
+```
+
+## Testing Patterns
+
+### Arrange-Act-Assert (AAA)
+
+All tests follow the AAA pattern:
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task Method_Scenario_ExpectedOutcome(
+    SutProvider<Service> sutProvider)
+{
+    // Arrange - Set up test conditions
+    var input = new Input();
+    sutProvider.GetDependency<IDependency>()
+        .MethodAsync()
+        .Returns(expectedValue);
+    
+    // Act - Execute the code under test
+    var result = await sutProvider.Sut.MethodUnderTest(input);
+    
+    // Assert - Verify the outcome
+    Assert.NotNull(result);
+    Assert.Equal(expectedValue, result.Value);
+}
+```
+
+### Test Naming Convention
+
+Tests are named: `MethodName_Scenario_ExpectedOutcome`
+
+Examples:
+- `CreateAsync_Authorized_NotificationCreated`
+- `GetById_UserNotFound_ThrowsNotFoundException`
+- `UpdatePassword_InvalidPassword_ReturnsFailed`
+
+## Testing Best Practices
+
+### Test One Thing
+
+```csharp
+// Good: Tests one specific behavior
+[Fact]
+public async Task DeleteUser_RemovesFromDatabase()
+{
+    var user = await CreateTestUser();
+    await _service.DeleteAsync(user);
+    var retrieved = await _repository.GetByIdAsync(user.Id);
+    Assert.Null(retrieved);
+}
+
+// Bad: Tests multiple behaviors
+[Fact]
+public async Task DeleteUser_RemovesFromDatabaseAndSendsEmailAndLogsEvent()
+{
+    // Too many concerns in one test
+}
+```
+
+### Use Meaningful Test Data
+
+```csharp
+// Good: Meaningful test data
+var organization = new Organization
+{
+    Name = "Test Organization",
+    BillingEmail = "billing@test.com"
+};
+
+// Bad: Unclear test data
+var org = new Organization { Name = "asdf", BillingEmail = "a@b.c" };
+```
+
+### Avoid Test Interdependence
+
+```csharp
+// Good: Each test is independent
+[Fact]
+public async Task Test1()
+{
+    var user = await CreateTestUser();
+    // Test with user
+}
+
+[Fact]
+public async Task Test2()
+{
+    var user = await CreateTestUser();  // Create own test data
+    // Test with user
+}
+
+// Bad: Tests depend on execution order
+private static User _sharedUser;  // Don't do this!
+```
+
+### Mock External Dependencies
+
+```csharp
+// Always mock external services
+sutProvider.GetDependency<IMailService>()
+    .SendEmailAsync(Arg.Any<string>(), Arg.Any<string>())
+    .Returns(Task.CompletedTask);
+
+// Never make real external calls in tests
+// await _mailService.SendEmailAsync("real@email.com", "subject");  // Don't do this!
+```
+
+## Running Tests in CI/CD
+
+Tests run automatically in GitHub Actions:
+
+```yaml
+- name: Run tests
+  run: |
+    dotnet test --no-build --verbosity normal --collect:"XPlat Code Coverage"
+    
+- name: Upload coverage
+  uses: codecov/codecov-action@v3
+  with:
+    files: coverage.opencover.xml
+```
+
+## Troubleshooting Tests
+
+### Tests Fail Locally But Pass in CI
+
+1. Ensure database is clean:
+   ```bash
+   docker restart bitwarden_mssql
+   dotnet run --project util/MsSqlMigratorUtility
+   ```
+
+2. Clear test artifacts:
+   ```bash
+   dotnet clean
+   rm -rf **/bin **/obj
+   dotnet restore
+   ```
+
+### Flaky Integration Tests
+
+- Add retry logic for timing-sensitive tests
+- Increase timeouts for async operations
+- Ensure proper test isolation
+
+### Mock Setup Not Working
+
+Verify argument matchers:
+
+```csharp
+// Specific argument
+repository.GetByIdAsync(userId).Returns(user);
+
+// Any argument of type
+repository.GetByIdAsync(Arg.Any<Guid>()).Returns(user);
+
+// Conditional argument
+repository.GetByIdAsync(Arg.Is<Guid>(id => id != Guid.Empty)).Returns(user);
+```
+
+## See Also
+
+- [xUnit Documentation](https://xunit.net/)
+- [AutoFixture Documentation](https://github.com/AutoFixture/AutoFixture)
+- [NSubstitute Documentation](https://nsubstitute.github.io/)
+- [Project Structure](/development/project-structure) - Understand the codebase
+- [Contribution Guide](/development/contribution-guide) - Submit your tests

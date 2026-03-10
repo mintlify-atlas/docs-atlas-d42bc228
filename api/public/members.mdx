@@ -1,0 +1,475 @@
+---
+title: "Public Members API"
+description: "Manage organization members via the Public API"
+---
+
+## Overview
+
+The Public Members API allows organization administrators to programmatically manage organization membership.
+
+<Info>
+All endpoints require organization-scoped authentication. See [Public API Overview](/api/public/overview) for authentication details.
+</Info>
+
+## List Members
+
+Retrieve all members of the organization.
+
+```bash
+GET /public/members
+```
+
+### Response
+
+<ResponseField name="object" type="string">
+  Always "list"
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  Array of member objects
+</ResponseField>
+
+### Member Object
+
+<ResponseField name="id" type="string" required>
+  Member's unique identifier
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  User account ID (null if invited but not accepted)
+</ResponseField>
+
+<ResponseField name="email" type="string" required>
+  Member's email address
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Member's display name
+</ResponseField>
+
+<ResponseField name="type" type="number" required>
+  Member role (0=Owner, 1=Admin, 2=User, 3=Manager, 4=Custom)
+</ResponseField>
+
+<ResponseField name="status" type="number" required>
+  Status (0=Invited, 1=Accepted, 2=Confirmed, -1=Revoked)
+</ResponseField>
+
+<ResponseField name="twoFactorEnabled" type="boolean" required>
+  Whether member has 2FA enabled
+</ResponseField>
+
+<ResponseField name="collections" type="array">
+  Collections assigned to member
+</ResponseField>
+
+---
+
+## Get Member
+
+Retrieve details of a specific member.
+
+```bash
+GET /public/members/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/public/members/{id}" \
+  -H "Authorization: Bearer {org_api_token}"
+```
+
+```javascript JavaScript
+const member = await fetch(
+  `https://api.bitwarden.com/public/members/${memberId}`,
+  {
+    headers: {
+      'Authorization': `Bearer ${orgToken}`
+    }
+  }
+).then(r => r.json());
+```
+</CodeGroup>
+
+---
+
+## Get Member Group IDs
+
+Retrieve the groups a member belongs to.
+
+```bash
+GET /public/members/{id}/group-ids
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+### Response
+
+Returns an array of group IDs:
+
+```json
+[
+  "group-guid-1",
+  "group-guid-2"
+]
+```
+
+---
+
+## Invite Member
+
+Invite a new user to the organization.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/public/members" \
+  -H "Authorization: Bearer {org_api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "type": 2,
+    "accessAll": false,
+    "collections": [
+      {
+        "id": "collection-guid",
+        "readOnly": false,
+        "hidePasswords": false
+      }
+    ],
+    "groups": ["group-guid"]
+  }'
+```
+
+```javascript JavaScript
+const member = await fetch(
+  'https://api.bitwarden.com/public/members',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      email: 'newuser@example.com',
+      type: 2,
+      accessAll: false,
+      collections: [
+        {id: collectionId, readOnly: false}
+      ]
+    })
+  }
+).then(r => r.json());
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.bitwarden.com/public/members',
+    headers={'Authorization': f'Bearer {org_token}'},
+    json={
+        'email': 'user@example.com',
+        'type': 2,
+        'accessAll': False,
+        'collections': [
+            {'id': collection_id, 'readOnly': False}
+        ]
+    }
+)
+member = response.json()
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  Email address to invite
+</ParamField>
+
+<ParamField body="type" type="number" required>
+  Member role (0=Owner, 1=Admin, 2=User, 3=Manager, 4=Custom)
+</ParamField>
+
+<ParamField body="externalId" type="string">
+  External identifier for directory sync
+</ParamField>
+
+<ParamField body="accessAll" type="boolean" default="false">
+  Grant access to all collections
+</ParamField>
+
+<ParamField body="collections" type="array">
+  Collection access assignments
+</ParamField>
+
+<ParamField body="groups" type="array">
+  Group IDs to add member to
+</ParamField>
+
+### Collection Assignment Object
+
+<ParamField body="id" type="string" required>
+  Collection ID
+</ParamField>
+
+<ParamField body="readOnly" type="boolean" default="false">
+  Read-only access
+</ParamField>
+
+<ParamField body="hidePasswords" type="boolean" default="false">
+  Hide password fields
+</ParamField>
+
+---
+
+## Update Member
+
+Update member's role, permissions, or assignments.
+
+```bash
+PUT /public/members/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+### Request Body
+
+All fields from Create Member - provide complete member object.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "https://api.bitwarden.com/public/members/{id}" \
+  -H "Authorization: Bearer {org_api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": 1,
+    "accessAll": true,
+    "collections": [],
+    "groups": []
+  }'
+```
+
+```javascript JavaScript
+await fetch(
+  `https://api.bitwarden.com/public/members/${memberId}`,
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      type: 1, // Promote to Admin
+      accessAll: false,
+      collections: [...],
+      groups: [...]
+    })
+  }
+);
+```
+</CodeGroup>
+
+<Warning>
+You must provide the complete member object, including all collections and groups. Omitted collections/groups will be removed.
+</Warning>
+
+---
+
+## Update Member Groups
+
+Update only the groups a member belongs to.
+
+```bash
+PUT /public/members/{id}/group-ids
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+<ParamField body="groupIds" type="array" required>
+  Complete array of group IDs
+</ParamField>
+
+```json
+{
+  "groupIds": [
+    "group-guid-1",
+    "group-guid-2"
+  ]
+}
+```
+
+---
+
+## Remove Member
+
+Permanently remove a member from the organization.
+
+```bash
+DELETE /public/members/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Member ID to remove
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "https://api.bitwarden.com/public/members/{id}" \
+  -H "Authorization: Bearer {org_api_token}"
+```
+
+```javascript JavaScript
+await fetch(
+  `https://api.bitwarden.com/public/members/${memberId}`,
+  {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`
+    }
+  }
+);
+```
+</CodeGroup>
+
+<Warning>
+This permanently removes the member. They will lose access to all shared items.
+</Warning>
+
+---
+
+## Reinvite Member
+
+Resend invitation email to a member.
+
+```bash
+POST /public/members/{id}/reinvite
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+---
+
+## Revoke Member
+
+Revoke a member's access (soft delete).
+
+```bash
+POST /public/members/{id}/revoke
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+<Info>
+Revoked members can be restored later without re-invitation.
+</Info>
+
+---
+
+## Restore Member
+
+Restore a revoked member's access.
+
+```bash
+POST /public/members/{id}/restore
+```
+
+<ParamField path="id" type="string" required>
+  Member ID
+</ParamField>
+
+---
+
+## Member Types
+
+| Type | Value | Permissions |
+|------|-------|-------------|
+| Owner | 0 | Full administrative access |
+| Admin | 1 | Administrative access |
+| User | 2 | Standard user |
+| Manager | 3 | Manage assigned collections |
+| Custom | 4 | Custom permission set |
+
+---
+
+## Member Status
+
+| Status | Value | Description |
+|--------|-------|-------------|
+| Invited | 0 | Invitation sent, not accepted |
+| Accepted | 1 | User accepted, not confirmed |
+| Confirmed | 2 | Fully active member |
+| Revoked | -1 | Access suspended |
+
+---
+
+## Bulk Operations Example
+
+### Invite Multiple Users
+
+```javascript
+const users = [
+  { email: 'user1@example.com', type: 2 },
+  { email: 'user2@example.com', type: 2 },
+  { email: 'user3@example.com', type: 3 }
+];
+
+for (const user of users) {
+  await fetch('https://api.bitwarden.com/public/members', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      ...user,
+      accessAll: false,
+      collections: [],
+      groups: [defaultGroupId]
+    })
+  });
+  
+  // Respect rate limits
+  await new Promise(r => setTimeout(r, 1000));
+}
+```
+
+### Sync from CSV
+
+```python
+import csv
+import requests
+import time
+
+with open('members.csv') as f:
+    reader = csv.DictReader(f)
+    
+    for row in reader:
+        requests.post(
+            'https://api.bitwarden.com/public/members',
+            headers={'Authorization': f'Bearer {org_token}'},
+            json={
+                'email': row['email'],
+                'type': int(row['type']),
+                'accessAll': False,
+                'collections': [],
+                'externalId': row['employee_id']
+            }
+        )
+        
+        # Rate limiting
+        time.sleep(1)
+```

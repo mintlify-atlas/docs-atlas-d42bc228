@@ -1,0 +1,559 @@
+---
+title: Server Updates
+description: Procedures for updating Bitwarden Server and performing database migrations
+---
+
+Keeping Bitwarden Server up to date is essential for security, performance, and access to new features. This guide covers update procedures, database migrations, and rollback strategies.
+
+## Update Overview
+
+Bitwarden Server updates typically include:
+
+- Security patches and bug fixes
+- New features and functionality
+- Database schema changes (migrations)
+- Performance improvements
+- Dependency updates
+
+<Warning>
+**Always create a full backup before updating.** See the [Backup and Restore](/operations/backup-restore) guide for procedures.
+</Warning>
+
+## Pre-Update Checklist
+
+<Steps>
+  <Step title="Review Release Notes">
+    Check the [Bitwarden release notes](https://github.com/bitwarden/server/releases) for:
+    - Breaking changes
+    - Migration requirements
+    - New configuration options
+    - Known issues
+  </Step>
+  
+  <Step title="Create Backup">
+    Perform a complete backup:
+    ```bash
+    ./backup-full.sh
+    ```
+    Verify backup integrity before proceeding.
+  </Step>
+  
+  <Step title="Check Disk Space">
+    Ensure sufficient disk space:
+    ```bash
+    df -h /var/lib/docker
+    df -h /etc/bitwarden
+    ```
+  </Step>
+  
+  <Step title="Schedule Maintenance Window">
+    Plan for downtime during:
+    - Off-peak hours
+    - With user notification
+    - Duration: 15-60 minutes depending on deployment size
+  </Step>
+  
+  <Step title="Review Current Version">
+    Document current version:
+    ```bash
+    docker images | grep bitwarden
+    ```
+  </Step>
+</Steps>
+
+## Update Procedures
+
+### Docker-Based Updates
+
+#### Standard Update
+
+<Steps>
+  <Step title="Stop Services">
+    Stop all Bitwarden services:
+    ```bash
+    ./bitwarden.sh stop
+    ```
+  </Step>
+  
+  <Step title="Update Script">
+    Update the Bitwarden installation script:
+    ```bash
+    curl -Lso bitwarden.sh https://go.btwrdn.co/bw-sh \
+      && chmod 700 bitwarden.sh
+    ```
+  </Step>
+  
+  <Step title="Pull New Images">
+    Download updated Docker images:
+    ```bash
+    ./bitwarden.sh update
+    ```
+  </Step>
+  
+  <Step title="Run Database Migrations">
+    Apply any database schema changes:
+    ```bash
+    ./bitwarden.sh migrate
+    ```
+    
+    The migration system will:
+    - Create the database if it doesn't exist
+    - Apply new migration scripts
+    - Track applied migrations in the `Migration` table
+  </Step>
+  
+  <Step title="Start Services">
+    Restart all services:
+    ```bash
+    ./bitwarden.sh start
+    ```
+  </Step>
+  
+  <Step title="Verify Update">
+    Test critical functionality:
+    - User login
+    - Vault access
+    - Organization operations
+    - Admin portal access
+  </Step>
+</Steps>
+
+#### Update Specific Services
+
+Update individual services:
+
+```bash
+# Update only the API service
+docker pull bitwarden/api:latest
+docker-compose up -d api
+
+# Update Identity service
+docker pull bitwarden/identity:latest
+docker-compose up -d identity
+```
+
+### Manual Updates
+
+For custom deployments:
+
+```bash
+# Pull new images
+docker-compose pull
+
+# Stop services
+docker-compose down
+
+# Start with new images
+docker-compose up -d
+```
+
+## Database Migrations
+
+### Migration System
+
+Bitwarden uses **DbUp** for database migrations with features:
+
+- Transaction-wrapped execution
+- Automatic retry on "script upgrade mode" errors
+- Script versioning and tracking
+- Configurable timeouts (5 minutes default, 60 minutes for large migrations)
+
+**Implementation:** `util/Migrator/DbMigrator.cs`
+
+### Migration Process
+
+#### Automatic Migration
+
+```bash
+./bitwarden.sh migrate
+```
+
+This runs the migrator container which:
+1. Connects to the database
+2. Creates database if it doesn't exist
+3. Executes pending migration scripts
+4. Records applied migrations
+
+#### Manual Migration
+
+Run the migrator directly:
+
+```bash
+docker run --rm \
+  -e "ACCEPT_EULA=Y" \
+  -e "SA_PASSWORD=your_password" \
+  -v /etc/bitwarden:/etc/bitwarden:ro \
+  bitwarden/migrator
+```
+
+#### Dry Run
+
+Preview migrations without applying:
+
+```bash
+docker run --rm \
+  -e "ACCEPT_EULA=Y" \
+  -e "SA_PASSWORD=your_password" \
+  -e "DRY_RUN=true" \
+  bitwarden/migrator
+```
+
+### Migration Retry Logic
+
+The migrator includes automatic retry for transient failures:
+
+```csharp
+var attempt = 1;
+while (attempt < 10)
+{
+    try
+    {
+        PrepareDatabase();
+        var success = MigrateDatabase();
+        return success;
+    }
+    catch (SqlException ex)
+    {
+        if (ex.Message.Contains("Server is in script upgrade mode."))
+        {
+            attempt++;
+            // Wait 20 seconds and retry
+            Thread.Sleep(20000);
+        }
+        else
+        {
+            throw;
+        }
+    }
+}
+```
+
+### Migration History
+
+View applied migrations:
+
+```sql
+SELECT 
+    ScriptName,
+    Applied,
+    AppliedDate
+FROM [dbo].[Migration]
+ORDER BY AppliedDate DESC;
+```
+
+### Migration Scripts
+
+Migration scripts are located in:
+- `util/Migrator/DbScripts/` - Main migrations
+- `util/MySqlMigrations/` - MySQL-specific
+- `util/PostgresMigrations/` - PostgreSQL-specific
+
+**Naming Convention:**
+```
+YYYY-MM-DD_NN_DescriptiveName.sql
+```
+
+Example:
+```
+2024-05-22_00_EnableAllOrgCollectionEnhancements_Rerun.sql
+```
+
+## Rollback Procedures
+
+### Quick Rollback
+
+If issues are detected immediately after update:
+
+<Steps>
+  <Step title="Stop Services">
+    ```bash
+    ./bitwarden.sh stop
+    ```
+  </Step>
+  
+  <Step title="Restore Previous Images">
+    Revert to previous Docker images:
+    ```bash
+    docker tag bitwarden/api:1.50.0 bitwarden/api:latest
+    docker tag bitwarden/identity:1.50.0 bitwarden/identity:latest
+    # Repeat for all services
+    ```
+  </Step>
+  
+  <Step title="Restore Database">
+    If database migrations were applied:
+    ```bash
+    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+    RESTORE DATABASE vault 
+    FROM DISK = '/etc/bitwarden/mssql/backups/vault_FULL_20260310.BAK' 
+    WITH REPLACE"
+    ```
+  </Step>
+  
+  <Step title="Restart Services">
+    ```bash
+    ./bitwarden.sh start
+    ```
+  </Step>
+</Steps>
+
+### Database-Only Rollback
+
+If only the database needs to be rolled back:
+
+```sql
+-- Identify problematic migration
+SELECT TOP 5 * FROM [dbo].[Migration] ORDER BY AppliedDate DESC;
+
+-- Restore from pre-migration backup
+RESTORE DATABASE vault 
+FROM DISK = '/backups/vault_pre_migration.bak' 
+WITH REPLACE;
+```
+
+<Warning>
+**Database rollbacks may result in data loss** for any changes made after the backup. Evaluate carefully before proceeding.
+</Warning>
+
+## Zero-Downtime Updates
+
+For high-availability deployments:
+
+### Blue-Green Deployment
+
+<Steps>
+  <Step title="Deploy Green Environment">
+    Create a parallel environment with updated version:
+    ```bash
+    # Clone configuration
+    cp -r /etc/bitwarden /etc/bitwarden-green
+    
+    # Update green environment
+    cd /etc/bitwarden-green
+    ./bitwarden.sh update
+    ```
+  </Step>
+  
+  <Step title="Sync Database">
+    Use database replication to sync data to green environment.
+  </Step>
+  
+  <Step title="Test Green Environment">
+    Verify all functionality in green environment.
+  </Step>
+  
+  <Step title="Switch Traffic">
+    Update load balancer to point to green environment:
+    ```nginx
+    upstream bitwarden {
+        # server blue-api:5000;  # Old
+        server green-api:5000;   # New
+    }
+    ```
+  </Step>
+  
+  <Step title="Monitor and Validate">
+    Watch for errors. If issues arise, switch back to blue.
+  </Step>
+</Steps>
+
+### Rolling Updates
+
+For multi-instance deployments:
+
+```bash
+# Update instances one at a time
+for instance in api-1 api-2 api-3; do
+    docker-compose stop $instance
+    docker-compose pull $instance
+    docker-compose up -d $instance
+    
+    # Wait for health check
+    sleep 30
+    
+    # Verify health
+    curl -f http://$instance:5000/healthz || exit 1
+done
+```
+
+## Post-Update Verification
+
+### Functional Testing
+
+<Steps>
+  <Step title="Authentication">
+    Test user login with various methods:
+    - Email/master password
+    - SSO (if configured)
+    - Two-factor authentication
+  </Step>
+  
+  <Step title="Vault Operations">
+    Verify core functionality:
+    - View items
+    - Add/edit items
+    - Delete items
+    - Share items
+  </Step>
+  
+  <Step title="Organization Features">
+    Test organization-specific features:
+    - User management
+    - Collection access
+    - Group permissions
+    - Event logs
+  </Step>
+  
+  <Step title="Admin Functions">
+    Verify admin portal:
+    - License status
+    - User overview
+    - System health
+  </Step>
+</Steps>
+
+### Health Checks
+
+```bash
+# Check all service endpoints
+for service in api identity admin; do
+    echo "Checking $service..."
+    curl -f "http://$service:5000/healthz" || echo "$service FAILED"
+done
+
+# Check database connectivity
+docker exec bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C \
+  -Q "SELECT @@VERSION;"
+```
+
+### Log Review
+
+Check logs for errors:
+
+```bash
+# View recent logs
+docker logs --tail 100 bitwarden-api
+docker logs --tail 100 bitwarden-identity
+
+# Search for errors
+docker logs bitwarden-api 2>&1 | grep -i error
+```
+
+## Update Automation
+
+### Automated Update Script
+
+```bash
+#!/bin/bash
+set -e
+
+LOG_FILE="/var/log/bitwarden-update.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+log "Starting Bitwarden update process"
+
+# Pre-update checks
+log "Creating backup..."
+./backup-full.sh || { log "Backup failed, aborting"; exit 1; }
+
+log "Checking disk space..."
+if [ $(df /var/lib/docker | tail -1 | awk '{print $5}' | sed 's/%//') -gt 80 ]; then
+    log "Insufficient disk space, aborting"
+    exit 1
+fi
+
+# Perform update
+log "Stopping services..."
+./bitwarden.sh stop
+
+log "Updating Bitwarden..."
+./bitwarden.sh update || { log "Update failed, restoring from backup"; ./restore.sh; exit 1; }
+
+log "Running migrations..."
+./bitwarden.sh migrate || { log "Migration failed, restoring from backup"; ./restore.sh; exit 1; }
+
+log "Starting services..."
+./bitwarden.sh start
+
+# Post-update verification
+log "Waiting for services to start..."
+sleep 30
+
+log "Verifying health..."
+if ! curl -f http://localhost/healthz; then
+    log "Health check failed, rolling back"
+    ./restore.sh
+    exit 1
+fi
+
+log "Update completed successfully"
+```
+
+### Schedule with Cron
+
+```bash
+# Weekly updates on Sunday at 2 AM
+0 2 * * 0 /opt/bitwarden/auto-update.sh
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Regular Updates" icon="calendar">
+    Update at least monthly. Security updates should be applied within 1 week of release.
+  </Card>
+  
+  <Card title="Test First" icon="flask">
+    Test updates in a staging environment before applying to production.
+  </Card>
+  
+  <Card title="Monitor Releases" icon="rss">
+    Subscribe to Bitwarden release notifications to stay informed of updates.
+  </Card>
+  
+  <Card title="Document Changes" icon="file-lines">
+    Maintain a change log of all updates, including date, version, and any issues encountered.
+  </Card>
+</CardGroup>
+
+## Troubleshooting Updates
+
+### Update Fails to Download Images
+
+**Issue:** Docker pull fails or times out
+
+**Solutions:**
+- Check internet connectivity
+- Verify Docker Hub access
+- Check disk space: `df -h`
+- Clear Docker cache: `docker system prune -a`
+
+### Migration Fails
+
+**Issue:** Database migration errors
+
+**Solutions:**
+- Check migration logs: `docker logs bitwarden-migrator`
+- Verify database connectivity
+- Check SQL Server state: ensure not in "script upgrade mode"
+- Review specific migration script for issues
+
+### Services Won't Start After Update
+
+**Issue:** Services fail to start post-update
+
+**Solutions:**
+- Check service logs: `docker logs <service>`
+- Verify configuration files
+- Check for port conflicts: `netstat -tulpn`
+- Ensure all dependencies are running
+
+## Related Resources
+
+- [Backup and Restore](/operations/backup-restore)
+- [Troubleshooting Guide](/operations/troubleshooting)
+- [Database Configuration](/configuration/database)

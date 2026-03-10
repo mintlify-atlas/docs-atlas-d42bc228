@@ -1,0 +1,472 @@
+---
+title: Database Setup
+description: Configure and initialize the Bitwarden Server database
+---
+
+## Overview
+
+Bitwarden Server requires a SQL database to store user data, vault items, organizations, and system configuration. The database is shared across all services.
+
+## Supported Databases
+
+<CardGroup cols={3}>
+  <Card title="SQL Server" icon="microsoft">
+    **Recommended** - SQL Server 2017+
+    
+    Microsoft's enterprise database. Best performance and full feature support.
+  </Card>
+  
+  <Card title="PostgreSQL" icon="database">
+    PostgreSQL 12+
+    
+    Open-source alternative with excellent performance.
+  </Card>
+  
+  <Card title="MySQL / MariaDB" icon="database">
+    MySQL 8.0+ / MariaDB 10.5+
+    
+    Widely available open-source databases.
+  </Card>
+</CardGroup>
+
+<Info>
+  **Production Recommendation**: Use SQL Server 2022 or PostgreSQL 14+ for best performance and reliability.
+</Info>
+
+## Quick Start with Docker
+
+### SQL Server
+
+```bash
+# Start SQL Server container
+docker run -d \
+  --name bitwarden-mssql \
+  -e "ACCEPT_EULA=Y" \
+  -e "MSSQL_SA_PASSWORD=YourStrongPassword123!" \
+  -e "MSSQL_PID=Developer" \
+  -p 1433:1433 \
+  -v mssql_data:/var/opt/mssql \
+  mcr.microsoft.com/mssql/server:2022-latest
+
+# Wait for SQL Server to start
+sleep 30
+
+# Create database
+docker exec bitwarden-mssql /opt/mssql-tools/bin/sqlcmd \
+  -S localhost -U sa -P "YourStrongPassword123!" \
+  -Q "CREATE DATABASE vault; ALTER DATABASE vault SET RECOVERY SIMPLE;"
+```
+
+### PostgreSQL
+
+```bash
+# Start PostgreSQL container
+docker run -d \
+  --name bitwarden-postgres \
+  -e "POSTGRES_DB=vault" \
+  -e "POSTGRES_USER=postgres" \
+  -e "POSTGRES_PASSWORD=YourStrongPassword123!" \
+  -p 5432:5432 \
+  -v postgres_data:/var/lib/postgresql/data \
+  postgres:14
+```
+
+### MySQL
+
+```bash
+# Start MySQL container
+docker run -d \
+  --name bitwarden-mysql \
+  -e "MYSQL_ROOT_PASSWORD=YourStrongPassword123!" \
+  -e "MYSQL_DATABASE=vault" \
+  -p 3306:3306 \
+  -v mysql_data:/var/lib/mysql \
+  mysql:8.0 \
+  --default-authentication-plugin=mysql_native_password
+```
+
+## Connection Strings
+
+### SQL Server
+
+```json
+"globalSettings": {
+  "sqlServer": {
+    "connectionString": "Server=localhost;Database=vault;User Id=sa;Password=YourPassword;TrustServerCertificate=True;Encrypt=True;"
+  }
+}
+```
+
+**Connection String Parameters**:
+- `Server` - Hostname or IP address
+- `Database` - Database name (default: `vault`)
+- `User Id` - Database user
+- `Password` - Database password
+- `TrustServerCertificate=True` - Accept self-signed certificates (dev only)
+- `Encrypt=True` - Enable encryption (recommended)
+- `MultipleActiveResultSets=True` - Enable MARS (optional)
+
+### PostgreSQL
+
+```json
+"globalSettings": {
+  "sqlServer": {
+    "connectionString": "Host=localhost;Port=5432;Database=vault;Username=postgres;Password=YourPassword;SSL Mode=Prefer;"
+  }
+}
+```
+
+**Connection String Parameters**:
+- `Host` - Hostname or IP address
+- `Port` - Port number (default: 5432)
+- `Database` - Database name
+- `Username` - Database user
+- `Password` - Database password
+- `SSL Mode` - `Disable`, `Prefer`, or `Require`
+
+### MySQL
+
+```json
+"globalSettings": {
+  "sqlServer": {
+    "connectionString": "Server=localhost;Port=3306;Database=vault;Uid=root;Pwd=YourPassword;SslMode=Preferred;"
+  }
+}
+```
+
+**Connection String Parameters**:
+- `Server` - Hostname or IP address
+- `Port` - Port number (default: 3306)
+- `Database` - Database name
+- `Uid` - Database user
+- `Pwd` - Database password
+- `SslMode` - `None`, `Preferred`, or `Required`
+
+<Warning>
+  **Password Requirements**: SQL Server requires passwords with:
+  - At least 8 characters
+  - At least one uppercase letter
+  - At least one lowercase letter
+  - At least one number
+  - At least one special character
+</Warning>
+
+## Database Migrations
+
+Bitwarden uses database migrations to create and update the schema. Migrations must be run before starting services.
+
+### Using Migrator Utility
+
+The recommended way to run migrations:
+
+```bash
+# SQL Server
+docker run --rm \
+  -e "globalSettings__sqlServer__connectionString=Server=mssql;Database=vault;User Id=sa;Password=YourPassword;TrustServerCertificate=True;" \
+  --network bitwarden_default \
+  ghcr.io/bitwarden/mssqlmigratorutility:latest
+
+# PostgreSQL
+docker run --rm \
+  -e "globalSettings__sqlServer__connectionString=Host=postgres;Database=vault;Username=postgres;Password=YourPassword;" \
+  -e "globalSettings__databaseProvider=postgres" \
+  --network bitwarden_default \
+  ghcr.io/bitwarden/postgresmigratorutility:latest
+
+# MySQL
+docker run --rm \
+  -e "globalSettings__sqlServer__connectionString=Server=mysql;Database=vault;Uid=root;Pwd=YourPassword;" \
+  -e "globalSettings__databaseProvider=mysql" \
+  --network bitwarden_default \
+  ghcr.io/bitwarden/mysqlmigratorutility:latest
+```
+
+<Info>
+  The `--network` flag ensures the migrator can reach the database container. Adjust the network name based on your Docker Compose project.
+</Info>
+
+### Manual Migrations
+
+For non-Docker deployments, run the migrator utility directly:
+
+```bash
+# Download migrator utility
+cd /opt/bitwarden
+git clone https://github.com/bitwarden/server.git
+cd server/util/MsSqlMigratorUtility
+
+# Build and run
+dotnet run -- \
+  --connection "Server=localhost;Database=vault;User Id=sa;Password=YourPassword;"
+```
+
+### Hosted Service Migrations
+
+Services can automatically run migrations on startup:
+
+```json appsettings.json
+{
+  "globalSettings": {
+    "runDatabaseMigrationsOnStartup": true
+  }
+}
+```
+
+<Warning>
+  **Production Warning**: Automatic migrations on startup can cause race conditions when multiple instances start simultaneously. Use the migrator utility instead.
+</Warning>
+
+## Database Schema
+
+The Bitwarden database contains these primary tables:
+
+<AccordionGroup>
+  <Accordion title="User & Authentication">
+    - `User` - User accounts and profiles
+    - `Device` - Registered devices per user
+    - `AuthRequest` - Passwordless authentication requests
+    - `SsoUser` - SSO user mappings
+    - `U2f` - FIDO2/WebAuthn credentials
+  </Accordion>
+  
+  <Accordion title="Vault Data">
+    - `Cipher` - Vault items (logins, cards, notes, etc.)
+    - `Folder` - User folders
+    - `Collection` - Organization collections
+    - `CollectionCipher` - Collection-cipher relationships
+    - `Send` - Temporary secret sharing
+  </Accordion>
+  
+  <Accordion title="Organizations">
+    - `Organization` - Organization accounts
+    - `OrganizationUser` - User-organization memberships
+    - `Group` - Organization groups
+    - `GroupUser` - Group memberships
+    - `Policy` - Organization policies
+  </Accordion>
+  
+  <Accordion title="Events & Audit">
+    - `Event` - Audit log events
+    - `EventSystemUser` - System-generated events
+    - `SsoConfig` - SSO configuration
+    - `OrganizationApiKey` - API keys
+  </Accordion>
+  
+  <Accordion title="System">
+    - `Installation` - Installation identifiers
+    - `Grant` - OAuth 2.0 grants (IdentityServer)
+    - `Transaction` - Payment transactions
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+### Indexes
+
+Bitwarden migrations create optimal indexes automatically. Key indexes:
+
+- `Cipher.UserId` - User vault queries
+- `Cipher.OrganizationId` - Organization vault queries
+- `Event.Date` - Event log queries
+- `CollectionCipher.CipherId` and `CollectionCipher.CollectionId` - Collection relationships
+
+### SQL Server Recommendations
+
+```sql
+-- Set recovery model to SIMPLE for smaller logs (non-production)
+ALTER DATABASE vault SET RECOVERY SIMPLE;
+
+-- Update statistics
+EXEC sp_updatestats;
+
+-- Check index fragmentation
+SELECT 
+    OBJECT_NAME(ips.object_id) AS TableName,
+    ips.index_id,
+    avg_fragmentation_in_percent
+FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED') ips
+WHERE avg_fragmentation_in_percent > 30;
+```
+
+### PostgreSQL Recommendations
+
+```sql
+-- Vacuum and analyze
+VACUUM ANALYZE;
+
+-- Update statistics
+ANALYZE;
+
+-- Check table sizes
+SELECT 
+    schemaname,
+    tablename,
+    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
+FROM pg_tables
+WHERE schemaname = 'public'
+ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
+```
+
+### Connection Pooling
+
+Enable connection pooling for better performance:
+
+**SQL Server**:
+```
+Server=localhost;Database=vault;User Id=sa;Password=pass;Pooling=true;Min Pool Size=5;Max Pool Size=100;
+```
+
+**PostgreSQL**:
+```
+Host=localhost;Database=vault;Username=postgres;Password=pass;Pooling=true;Minimum Pool Size=5;Maximum Pool Size=100;
+```
+
+## Backup and Restore
+
+### SQL Server Backup
+
+```bash
+# Create backup
+docker exec bitwarden-mssql /opt/mssql-tools/bin/sqlcmd \
+  -S localhost -U sa -P "YourPassword" \
+  -Q "BACKUP DATABASE vault TO DISK='/var/opt/mssql/backup/vault_$(date +%Y%m%d).bak' WITH COMPRESSION;"
+
+# Copy backup from container
+docker cp bitwarden-mssql:/var/opt/mssql/backup/vault_20240101.bak ./
+
+# Restore backup
+docker exec bitwarden-mssql /opt/mssql-tools/bin/sqlcmd \
+  -S localhost -U sa -P "YourPassword" \
+  -Q "RESTORE DATABASE vault FROM DISK='/var/opt/mssql/backup/vault_20240101.bak' WITH REPLACE;"
+```
+
+### PostgreSQL Backup
+
+```bash
+# Create backup
+docker exec bitwarden-postgres pg_dump -U postgres vault > vault_backup.sql
+
+# Restore backup
+docker exec -i bitwarden-postgres psql -U postgres vault < vault_backup.sql
+```
+
+### MySQL Backup
+
+```bash
+# Create backup
+docker exec bitwarden-mysql mysqldump -u root -p"YourPassword" vault > vault_backup.sql
+
+# Restore backup
+docker exec -i bitwarden-mysql mysql -u root -p"YourPassword" vault < vault_backup.sql
+```
+
+<Info>
+  **Automation**: Set up automated daily backups using cron jobs or container orchestration tools.
+</Info>
+
+## Read Replicas
+
+For high-traffic deployments, configure read replicas:
+
+```json appsettings.json
+{
+  "globalSettings": {
+    "sqlServer": {
+      "connectionString": "Server=primary.db.local;Database=vault;User Id=sa;Password=pass;",
+      "readOnlyConnectionString": "Server=replica.db.local;Database=vault;User Id=sa;Password=pass;ApplicationIntent=ReadOnly;"
+    }
+  }
+}
+```
+
+Read operations (vault sync, searches) will use the replica automatically.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot connect to database">
+    **Symptoms**: Services fail to start with connection errors
+    
+    **Solutions**:
+    - Verify database is running: `docker ps`
+    - Check connection string credentials
+    - Ensure database port is accessible
+    - Test connection: `telnet localhost 1433`
+    - Check firewall rules
+  </Accordion>
+  
+  <Accordion title="Password policy errors (SQL Server)">
+    **Symptoms**: `Password validation failed`
+    
+    **Solutions**:
+    - Use a strong password with uppercase, lowercase, numbers, and symbols
+    - Minimum 8 characters
+    - Example: `MyStr0ng!Pass`
+  </Accordion>
+  
+  <Accordion title="Migrations fail">
+    **Symptoms**: Migration errors during startup
+    
+    **Solutions**:
+    - Run migrations manually using migrator utility
+    - Check database user has CREATE TABLE permissions
+    - Verify connection string is correct
+    - Review migration logs for specific errors
+  </Accordion>
+  
+  <Accordion title="Performance issues">
+    **Symptoms**: Slow queries, timeouts
+    
+    **Solutions**:
+    - Check database resource usage (CPU, memory, disk)
+    - Review slow query logs
+    - Update statistics: `EXEC sp_updatestats`
+    - Consider adding read replicas
+    - Increase connection pool size
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Steps>
+  <Step title="Use Strong Passwords">
+    Generate random passwords with at least 20 characters for database users.
+  </Step>
+  
+  <Step title="Restrict Network Access">
+    Only allow connections from application servers. Use firewall rules or security groups.
+  </Step>
+  
+  <Step title="Enable Encryption">
+    Use TLS/SSL for database connections in production.
+  </Step>
+  
+  <Step title="Regular Backups">
+    Automate daily backups and test restore procedures regularly.
+  </Step>
+  
+  <Step title="Monitor Access">
+    Enable audit logging for database access and review logs regularly.
+  </Step>
+  
+  <Step title="Principle of Least Privilege">
+    Grant minimal required permissions to application database users.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Configure connection strings in appsettings.json
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy services with Docker Compose
+  </Card>
+  <Card title="Backup & Restore" icon="floppy-disk" href="/operations/backup-restore">
+    Set up automated backups
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/operations/metrics">
+    Monitor database performance
+  </Card>
+</CardGroup>

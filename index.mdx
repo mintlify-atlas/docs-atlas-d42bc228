@@ -1,97 +1,147 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Bitwarden Server Documentation"
+description: "Backend infrastructure and APIs for the Bitwarden password management platform"
 ---
 
-## Setting up
+<div className="text-center mb-8">
+  <h1 className="text-5xl font-bold mb-4" style={{color: '#175edc'}}>Bitwarden Server</h1>
+  <p className="text-xl text-gray-600">Open-source backend infrastructure for secure password management</p>
+</div>
 
-Get your documentation site up and running in minutes.
+## Overview
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+Bitwarden Server is the core backend infrastructure that powers all Bitwarden client applications. Built with C# and ASP.NET Core, it provides a comprehensive suite of microservices for secure password management, including APIs, authentication, vault management, and enterprise features.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with local development or self-hosted deployment
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Explore the microservices architecture and system design
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="API Reference" icon="code" href="/api/authentication/overview">
+    Comprehensive REST API documentation
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Deployment Guide" icon="server" href="/deployment/docker">
+    Deploy with Docker and configure for production
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Core Services
 
-Everything you need to create world-class documentation.
+The Bitwarden Server platform consists of multiple specialized microservices working together to provide a complete password management solution.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="API Service" icon="network-wired" href="/services/api">
+    RESTful API for vault, organizations, and user management
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="Identity Service" icon="key" href="/services/identity">
+    OAuth 2.0 / OpenID Connect authentication and authorization
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="Admin Service" icon="user-shield" href="/services/admin">
+    Administrative portal for system management
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
+  <Card title="Notifications" icon="bell" href="/services/notifications">
+    Real-time push notifications via SignalR
   </Card>
-</Columns>
+  <Card title="Events Service" icon="chart-line" href="/services/events">
+    Audit logging and event tracking
+  </Card>
+  <Card title="Billing Service" icon="credit-card" href="/services/billing">
+    Subscription and payment processing
+  </Card>
+</CardGroup>
 
-## Need inspiration?
+## Enterprise Features
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Single Sign-On (SSO)" icon="right-to-bracket" href="/services/sso">
+    SAML 2.0 and OpenID Connect enterprise authentication
+  </Card>
+  <Card title="SCIM Provisioning" icon="users-gear" href="/services/scim">
+    Automated user provisioning and directory sync
+  </Card>
+  <Card title="Secrets Manager" icon="vault" href="/api/secrets-manager/overview">
+    Developer credential and API key management
+  </Card>
+  <Card title="Advanced Policies" icon="shield-halved" href="/api/organizations/policies">
+    Granular security policies and access controls
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Zero-Knowledge Architecture">
+    End-to-end encryption ensures that vault data is encrypted and decrypted only on the client side. The server never has access to unencrypted vault data or encryption keys.
+  </Accordion>
+  <Accordion title="Multi-Database Support">
+    Compatible with SQL Server, PostgreSQL, and MySQL. Entity Framework and Dapper provide flexible data access layers.
+  </Accordion>
+  <Accordion title="Docker-Based Deployment">
+    All services are containerized for easy deployment and scaling. Includes Docker Compose configurations for development and production.
+  </Accordion>
+  <Accordion title="Comprehensive API">
+    RESTful APIs with Swagger/OpenAPI documentation. Includes public API for programmatic access and integrations.
+  </Accordion>
+  <Accordion title="Real-Time Sync">
+    SignalR-based push notifications keep clients synchronized across all devices in real-time.
+  </Accordion>
+  <Accordion title="Audit & Compliance">
+    Comprehensive event logging and auditing system for compliance and security monitoring.
+  </Accordion>
+</AccordionGroup>
+
+## Getting Started
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/bitwarden/server.git
+    cd server
+    ```
+  </Step>
+  <Step title="Start Development Environment">
+    ```bash
+    cd dev
+    docker compose --profile cloud up -d
+    ```
+  </Step>
+  <Step title="Configure Services">
+    Set up your local development environment with the required tools and dependencies. See the [Local Setup](/development/local-setup) guide for detailed instructions.
+  </Step>
+  <Step title="Run the API">
+    ```bash
+    cd src/Api
+    dotnet run
+    ```
+  </Step>
+</Steps>
+
+## Technology Stack
+
+- **Framework**: .NET 8.0 / ASP.NET Core
+- **Databases**: SQL Server, PostgreSQL, MySQL
+- **Authentication**: Duende IdentityServer (OAuth 2.0 / OIDC)
+- **Real-time**: SignalR
+- **Containerization**: Docker
+- **Cloud Storage**: Azure Blob Storage, AWS S3 compatible
+- **Payment Processing**: Stripe
+- **Email**: SMTP, SendGrid, Mailgun
+
+## Community & Support
+
+<CardGroup cols={2}>
+  <Card title="Contributing Guide" icon="code-pull-request" href="/development/contribution-guide">
+    Learn how to contribute to the Bitwarden Server project
+  </Card>
+  <Card title="GitHub Repository" icon="github" href="https://github.com/bitwarden/server">
+    View source code and submit issues
+  </Card>
+  <Card title="Security Policy" icon="shield" href="/development/security">
+    Report security vulnerabilities responsibly
+  </Card>
+  <Card title="Community Forums" icon="comments" href="https://community.bitwarden.com">
+    Get help and connect with other developers
+  </Card>
+</CardGroup>

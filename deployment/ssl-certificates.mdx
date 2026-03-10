@@ -1,0 +1,516 @@
+---
+title: SSL Certificates
+description: Configure SSL/TLS certificates for secure HTTPS communication
+---
+
+## Overview
+
+Bitwarden Server requires SSL/TLS certificates for:
+
+1. **HTTPS traffic** - Securing client-server communication
+2. **Token signing** - Identity Server token generation and validation
+3. **Data protection** - ASP.NET Core data protection keys
+
+<Warning>
+  **Production Requirement**: Valid SSL certificates from a trusted Certificate Authority are required for production deployments. Self-signed certificates should only be used for development.
+</Warning>
+
+## Certificate Types
+
+<CardGroup cols={2}>
+  <Card title="Web Server Certificates" icon="server">
+    Used by Nginx/reverse proxy for HTTPS traffic.
+    
+    **Format**: PEM (`.crt` + `.key`) or PFX (`.pfx`)
+  </Card>
+  
+  <Card title="Identity Server Certificates" icon="key">
+    Used for signing OAuth 2.0 / OpenID Connect tokens.
+    
+    **Format**: PFX with private key
+  </Card>
+  
+  <Card title="Data Protection Certificates" icon="shield">
+    Used by ASP.NET Core for encrypting cookies and tokens.
+    
+    **Format**: PFX with private key
+  </Card>
+  
+  <Card title="Client Certificates" icon="certificate">
+    Optional mutual TLS authentication.
+    
+    **Format**: PFX or PEM
+  </Card>
+</CardGroup>
+
+## Obtaining Certificates
+
+### Let's Encrypt (Recommended)
+
+Free, automated SSL certificates:
+
+<Tabs>
+  <Tab title="Certbot">
+    ```bash
+    # Install certbot
+    sudo apt-get update
+    sudo apt-get install certbot
+    
+    # Generate certificate (standalone mode)
+    sudo certbot certonly --standalone \
+      -d vault.example.com \
+      -d api.example.com \
+      -d identity.example.com \
+      --email admin@example.com \
+      --agree-tos
+    
+    # Certificates will be in:
+    # /etc/letsencrypt/live/vault.example.com/fullchain.pem
+    # /etc/letsencrypt/live/vault.example.com/privkey.pem
+    ```
+  </Tab>
+  
+  <Tab title="Docker with Certbot">
+    ```bash
+    # Using certbot Docker image
+    docker run -it --rm \
+      -p 80:80 \
+      -v /etc/letsencrypt:/etc/letsencrypt \
+      certbot/certbot certonly \
+      --standalone \
+      -d vault.example.com \
+      --email admin@example.com \
+      --agree-tos
+    ```
+  </Tab>
+  
+  <Tab title="Automatic Renewal">
+    ```bash
+    # Add to crontab for automatic renewal
+    crontab -e
+    
+    # Renew certificate daily (certbot checks expiration)
+    0 2 * * * certbot renew --quiet --deploy-hook "docker restart bitwarden-nginx"
+    ```
+  </Tab>
+</Tabs>
+
+### Commercial Certificate Authority
+
+Purchase from trusted CAs like DigiCert, GlobalSign, or Sectigo:
+
+<Steps>
+  <Step title="Generate CSR">
+    ```bash
+    openssl req -new -newkey rsa:4096 -nodes \
+      -keyout vault.key \
+      -out vault.csr \
+      -subj "/C=US/ST=California/L=San Francisco/O=Company/CN=vault.example.com"
+    ```
+  </Step>
+  
+  <Step title="Submit CSR to CA">
+    Submit the `.csr` file to your certificate authority and complete domain validation.
+  </Step>
+  
+  <Step title="Download Certificate">
+    Download the signed certificate and intermediate certificates from your CA.
+  </Step>
+  
+  <Step title="Create Certificate Chain">
+    ```bash
+    # Combine certificate with intermediate chain
+    cat vault.crt intermediate.crt > fullchain.pem
+    ```
+  </Step>
+</Steps>
+
+### Self-Signed (Development Only)
+
+For development and testing:
+
+```bash
+# Generate self-signed certificate
+openssl req -x509 -newkey rsa:4096 -sha256 -nodes \
+  -keyout vault.key \
+  -out vault.crt \
+  -days 365 \
+  -subj "/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,DNS:api.localhost,DNS:identity.localhost,IP:127.0.0.1"
+
+# Convert to PFX format
+openssl pkcs12 -export \
+  -out vault.pfx \
+  -inkey vault.key \
+  -in vault.crt \
+  -password pass:changeme
+```
+
+<Warning>
+  Self-signed certificates will trigger security warnings in browsers and are not suitable for production.
+</Warning>
+
+## Web Server Configuration
+
+### Nginx
+
+Configure Nginx to use SSL certificates:
+
+```nginx nginx.conf
+server {
+    listen 443 ssl http2;
+    server_name vault.example.com;
+    
+    # SSL Certificate Configuration
+    ssl_certificate /etc/ssl/bitwarden/fullchain.pem;
+    ssl_certificate_key /etc/ssl/bitwarden/privkey.pem;
+    
+    # SSL Security Settings
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384';
+    ssl_prefer_server_ciphers off;
+    
+    # SSL Performance
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_session_tickets off;
+    
+    # HSTS (HTTP Strict Transport Security)
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    
+    # Other security headers
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    
+    location /api/ {
+        proxy_pass http://api:5000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /identity/ {
+        proxy_pass http://identity:5001/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# Redirect HTTP to HTTPS
+server {
+    listen 80;
+    server_name vault.example.com;
+    return 301 https://$server_name$request_uri;
+}
+```
+
+### Docker Compose
+
+Mount certificates in Docker Compose:
+
+```yaml docker-compose.yml
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl/fullchain.pem:/etc/ssl/bitwarden/fullchain.pem:ro
+      - ./ssl/privkey.pem:/etc/ssl/bitwarden/privkey.pem:ro
+    networks:
+      - bitwarden
+```
+
+## Identity Server Certificates
+
+Identity Server requires a certificate for signing tokens:
+
+### Generate Identity Server Certificate
+
+```bash
+# Generate certificate for token signing
+openssl req -x509 -newkey rsa:4096 -sha256 -nodes -days 3650 \
+  -keyout identity_server.key \
+  -out identity_server.crt \
+  -subj "/CN=Bitwarden Identity Server"
+
+# Convert to PFX with password
+openssl pkcs12 -export \
+  -out identity_server.pfx \
+  -inkey identity_server.key \
+  -in identity_server.crt \
+  -password pass:your_password_here
+
+# Get certificate thumbprint (SHA-1 fingerprint)
+openssl x509 -in identity_server.crt -fingerprint -noout | \
+  sed 's/SHA1 Fingerprint=//g' | \
+  tr -d ':' | \
+  tr '[:lower:]' '[:upper:]'
+```
+
+### Install Certificate
+
+<Tabs>
+  <Tab title="Docker Volume">
+    ```yaml docker-compose.yml
+    services:
+      identity:
+        image: ghcr.io/bitwarden/identity:latest
+        volumes:
+          - ./ssl/identity_server.pfx:/etc/bitwarden/identity_server.pfx:ro
+        environment:
+          globalSettings__identityServer__certificatePath: "/etc/bitwarden/identity_server.pfx"
+          globalSettings__identityServer__certificatePassword: "your_password_here"
+    ```
+  </Tab>
+  
+  <Tab title="Certificate Store (Linux)">
+    ```bash
+    # Convert to DER format
+    openssl x509 -in identity_server.crt -outform der -out identity_server.der
+    
+    # Install in system store
+    sudo cp identity_server.crt /usr/local/share/ca-certificates/
+    sudo update-ca-certificates
+    
+    # Get thumbprint
+    openssl x509 -in identity_server.crt -fingerprint -noout | \
+      sed 's/SHA1 Fingerprint=//g' | tr -d ':'
+    ```
+    
+    Configure in `appsettings.json`:
+    ```json
+    {
+      "globalSettings": {
+        "identityServer": {
+          "certificateThumbprint": "YOUR_THUMBPRINT_HERE"
+        }
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Windows Certificate Store">
+    ```powershell
+    # Import certificate to Personal store
+    Import-PfxCertificate -FilePath identity_server.pfx \
+      -CertStoreLocation Cert:\LocalMachine\My \
+      -Password (ConvertTo-SecureString -String "your_password" -AsPlainText -Force)
+    
+    # Get thumbprint
+    Get-ChildItem -Path Cert:\LocalMachine\My | \
+      Where-Object {$_.Subject -like "*Bitwarden*"} | \
+      Select-Object Thumbprint
+    ```
+  </Tab>
+</Tabs>
+
+### Configure Services
+
+```json appsettings.json
+{
+  "globalSettings": {
+    "identityServer": {
+      "certificateThumbprint": "ABC123DEF456..." // or
+      "certificatePath": "/etc/bitwarden/identity_server.pfx",
+      "certificatePassword": "your_password_here"
+    },
+    "dataProtection": {
+      "certificateThumbprint": "ABC123DEF456..." // Can be same certificate
+    }
+  }
+}
+```
+
+<Info>
+  You can use the same certificate for both Identity Server and Data Protection, or separate certificates for enhanced security.
+</Info>
+
+## Certificate Rotation
+
+### Web Server Certificates
+
+<Steps>
+  <Step title="Obtain New Certificate">
+    Generate or renew certificate using Let's Encrypt or your CA.
+  </Step>
+  
+  <Step title="Update Certificate Files">
+    Replace old certificate files with new ones:
+    ```bash
+    cp new_fullchain.pem /etc/ssl/bitwarden/fullchain.pem
+    cp new_privkey.pem /etc/ssl/bitwarden/privkey.pem
+    ```
+  </Step>
+  
+  <Step title="Reload Nginx">
+    ```bash
+    docker exec bitwarden-nginx nginx -s reload
+    # or
+    docker restart bitwarden-nginx
+    ```
+  </Step>
+  
+  <Step title="Verify">
+    ```bash
+    curl -I https://vault.example.com
+    openssl s_client -connect vault.example.com:443 -servername vault.example.com
+    ```
+  </Step>
+</Steps>
+
+### Identity Server Certificates
+
+<Warning>
+  Rotating Identity Server certificates will invalidate all existing tokens. Plan for a maintenance window.
+</Warning>
+
+<Steps>
+  <Step title="Generate New Certificate">
+    Create new certificate and get thumbprint.
+  </Step>
+  
+  <Step title="Install New Certificate">
+    Install alongside old certificate (don't remove old one yet).
+  </Step>
+  
+  <Step title="Update Configuration">
+    Update `certificateThumbprint` in all service configurations.
+  </Step>
+  
+  <Step title="Rolling Restart">
+    Restart services one at a time:
+    ```bash
+    docker restart bitwarden-identity
+    docker restart bitwarden-api
+    # Wait for tokens to expire or force logout users
+    ```
+  </Step>
+  
+  <Step title="Remove Old Certificate">
+    After all tokens have expired, remove the old certificate.
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Strong Key Lengths" icon="key">
+    - Minimum 2048-bit RSA
+    - Recommended: 4096-bit RSA or ECC P-256
+  </Card>
+  
+  <Card title="Enable HSTS" icon="shield-check">
+    Add `Strict-Transport-Security` header to force HTTPS:
+    ```
+    max-age=31536000; includeSubDomains; preload
+    ```
+  </Card>
+  
+  <Card title="Disable Weak Protocols" icon="ban">
+    - Disable SSLv3, TLS 1.0, TLS 1.1
+    - Use only TLS 1.2 and TLS 1.3
+  </Card>
+  
+  <Card title="Monitor Expiration" icon="clock">
+    Set up alerts for certificates expiring within 30 days.
+  </Card>
+  
+  <Card title="Secure Private Keys" icon="lock">
+    - Use strong file permissions (600 or 400)
+    - Never commit private keys to version control
+    - Consider Hardware Security Modules (HSM) for production
+  </Card>
+  
+  <Card title="Use CAA Records" icon="dns">
+    Add DNS CAA records to prevent unauthorized certificate issuance:
+    ```
+    example.com. CAA 0 issue "letsencrypt.org"
+    ```
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Certificate not found error">
+    **Symptoms**: `Certificate with thumbprint 'ABC123' not found`
+    
+    **Solutions**:
+    - Verify certificate is installed in correct store (LocalMachine\My on Windows)
+    - Check thumbprint matches (no spaces, correct case)
+    - Ensure private key is accessible
+    - Check file permissions on certificate files
+  </Accordion>
+  
+  <Accordion title="SSL handshake errors">
+    **Symptoms**: Clients cannot establish HTTPS connection
+    
+    **Solutions**:
+    - Verify certificate is valid (not expired)
+    - Check certificate chain is complete
+    - Ensure private key matches certificate
+    - Test with: `openssl s_client -connect domain:443`
+  </Accordion>
+  
+  <Accordion title="Token signature validation failed">
+    **Symptoms**: Login fails with invalid token signature
+    
+    **Solutions**:
+    - Verify Identity Server certificate is configured correctly
+    - Check certificate has private key
+    - Ensure thumbprint in all services matches
+    - Restart services after certificate changes
+  </Accordion>
+  
+  <Accordion title="Self-signed certificate warnings">
+    **Symptoms**: Browser shows security warnings
+    
+    **Solutions**:
+    - For development: Add certificate to trusted root store
+    - For production: Use certificate from trusted CA
+    - Ensure certificate includes Subject Alternative Names (SAN)
+  </Accordion>
+</AccordionGroup>
+
+## Testing Certificates
+
+```bash
+# Verify certificate
+openssl x509 -in certificate.crt -text -noout
+
+# Test SSL connection
+openssl s_client -connect vault.example.com:443 -servername vault.example.com
+
+# Check certificate expiration
+echo | openssl s_client -connect vault.example.com:443 2>/dev/null | \
+  openssl x509 -noout -dates
+
+# Verify certificate chain
+openssl verify -CAfile /etc/ssl/certs/ca-certificates.crt fullchain.pem
+
+# Test specific cipher
+openssl s_client -connect vault.example.com:443 -cipher 'ECDHE-RSA-AES128-GCM-SHA256'
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Deploy services with SSL configured
+  </Card>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Configure certificate settings in appsettings.json
+  </Card>
+  <Card title="Security Best Practices" icon="shield" href="/operations/security-best-practices">
+    Additional security hardening
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/operations/troubleshooting">
+    Resolve common issues
+  </Card>
+</CardGroup>

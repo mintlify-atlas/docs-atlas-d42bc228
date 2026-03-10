@@ -1,0 +1,515 @@
+---
+title: Contribution Guide
+description: How to contribute to Bitwarden Server
+---
+
+Thank you for your interest in contributing to Bitwarden Server! This guide will help you make your first contribution.
+
+## Before You Start
+
+Bitwarden has comprehensive contributing documentation available at:
+
+**[contributing.bitwarden.com](https://contributing.bitwarden.com/)**
+
+This official documentation includes:
+- Detailed contribution guidelines
+- Code style requirements
+- Architecture documentation
+- Database migration guides
+- PR review process
+
+<Note>
+Bitwarden Server is licensed under the **AGPL 3.0 license** (see `LICENSE_AGPL.txt`). By contributing, you agree that your contributions will be licensed under the same terms.
+</Note>
+
+## Quick Start for Contributors
+
+<Steps>
+
+<Step title="Fork and clone the repository">
+
+```bash
+# Fork the repository on GitHub first, then:
+git clone https://github.com/YOUR_USERNAME/server.git
+cd server
+git remote add upstream https://github.com/bitwarden/server.git
+```
+</Step>
+
+<Step title="Set up your development environment">
+
+Follow the [Local Development Setup](/development/local-setup) guide to configure your environment.
+
+</Step>
+
+<Step title="Create a feature branch">
+
+```bash
+git checkout -b feature/my-contribution
+```
+
+Branch naming conventions:
+- `feature/description` - New features
+- `bugfix/description` - Bug fixes
+- `refactor/description` - Code refactoring
+- `docs/description` - Documentation updates
+
+</Step>
+
+<Step title="Make your changes">
+
+Ensure your code follows the project's:
+- [Code style guidelines](/development/code-style)
+- [Testing requirements](/development/testing)
+- [Security guidelines](/development/security)
+
+</Step>
+
+<Step title="Test your changes">
+
+```bash
+# Run affected tests
+dotnet test test/Core.Test/
+
+# Run integration tests if applicable
+dotnet test test/Api.IntegrationTest/
+```
+
+</Step>
+
+<Step title="Commit your changes">
+
+Use clear, descriptive commit messages:
+
+```bash
+git add .
+git commit -m "Add user preference storage feature
+
+Implements user preferences storage with encrypted JSON.
+Adds new User.Preferences column and repository methods.
+
+Fixes #1234"
+```
+
+**Commit message format**:
+- First line: Brief summary (50 chars or less)
+- Blank line
+- Detailed description of changes
+- Reference issue numbers
+
+</Step>
+
+<Step title="Push and create a pull request">
+
+```bash
+git push origin feature/my-contribution
+```
+
+Then create a PR on GitHub targeting the `main` branch.
+
+</Step>
+
+</Steps>
+
+## Pull Request Guidelines
+
+### PR Title
+
+Use a clear, descriptive title:
+
+```
+Add user preferences storage
+Fix cipher export bug for organizations
+Refactor authentication service
+Update database migration documentation
+```
+
+### PR Description Template
+
+Provide a comprehensive description:
+
+```markdown
+## Type of Change
+- [ ] Bug fix
+- [x] New feature
+- [ ] Breaking change
+- [ ] Documentation update
+
+## Description
+Adds support for storing user UI preferences in the database.
+Preferences are stored as encrypted JSON in a new User.Preferences column.
+
+## Changes Made
+- Added `Preferences` column to User table
+- Created database migration script
+- Added repository methods for preference CRUD
+- Implemented preference encryption/decryption
+- Added unit and integration tests
+
+## Testing
+- [x] Unit tests added
+- [x] Integration tests added
+- [x] Manual testing completed
+
+## Related Issues
+Fixes #1234
+Related to #5678
+
+## Screenshots (if applicable)
+[Add screenshots here]
+
+## Checklist
+- [x] Code follows project style guidelines
+- [x] Tests pass locally
+- [x] Documentation updated
+- [x] Database migrations added (if applicable)
+```
+
+### PR Size
+
+Keep PRs focused and manageable:
+
+**Ideal PR**:
+- Single feature or bug fix
+- 200-400 lines changed
+- Easy to review
+
+**Large PR** (avoid if possible):
+- Multiple features
+- 1000+ lines changed
+- Difficult to review
+
+If your change is large, consider:
+1. Breaking it into smaller PRs
+2. Creating a tracking issue for the overall feature
+3. Linking PRs together
+
+## Code Review Process
+
+### What to Expect
+
+1. **Automated Checks**: CI/CD runs tests and linting
+2. **Initial Review**: Maintainer reviews within 1-2 weeks
+3. **Feedback**: You may receive change requests
+4. **Updates**: Address feedback and push updates
+5. **Approval**: Once approved, maintainers will merge
+
+### Responding to Feedback
+
+```bash
+# Make requested changes
+git add .
+git commit -m "Address PR feedback
+
+- Update error handling as requested
+- Add missing unit tests
+- Fix code style issues"
+
+git push origin feature/my-contribution
+```
+
+### CI/CD Checks
+
+Your PR must pass:
+
+- **Build** - Code compiles successfully
+- **Tests** - All unit and integration tests pass
+- **Linting** - Code style checks pass
+- **Security Scan** - No security vulnerabilities
+
+## Common Contribution Types
+
+### Bug Fixes
+
+<Steps>
+
+<Step title="Verify the bug">
+Reproduce the issue locally and understand the root cause.
+</Step>
+
+<Step title="Write a failing test">
+Create a test that demonstrates the bug:
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task GetCipher_DeletedCipher_ThrowsNotFoundException(
+    SutProvider<CipherService> sutProvider,
+    Cipher cipher)
+{
+    cipher.DeletedDate = DateTime.UtcNow;
+    
+    sutProvider.GetDependency<ICipherRepository>()
+        .GetByIdAsync(cipher.Id)
+        .Returns(cipher);
+    
+    await Assert.ThrowsAsync<NotFoundException>(
+        () => sutProvider.Sut.GetAsync(cipher.Id)
+    );
+}
+```
+</Step>
+
+<Step title="Fix the bug">
+Implement the fix and ensure the test passes.
+</Step>
+
+<Step title="Submit PR">
+Reference the issue number in your PR description.
+</Step>
+
+</Steps>
+
+### New Features
+
+<Steps>
+
+<Step title="Discuss first">
+For significant features, open an issue to discuss the approach before implementing.
+</Step>
+
+<Step title="Design the feature">
+- Identify affected entities
+- Plan database changes
+- Consider backward compatibility
+</Step>
+
+<Step title="Implement incrementally">
+1. Database migration
+2. Repository layer
+3. Service layer
+4. API endpoints
+5. Tests
+</Step>
+
+<Step title="Document the feature">
+Update relevant documentation and add code comments.
+</Step>
+
+</Steps>
+
+### Database Changes
+
+See [Database Migrations](/development/database-migrations) for detailed guidance.
+
+**Checklist**:
+- [ ] Migration script is idempotent
+- [ ] Migration tested locally
+- [ ] Backward compatible (if possible)
+- [ ] Rollback plan documented
+- [ ] All database providers supported (SQL Server, PostgreSQL, MySQL)
+
+### Documentation Updates
+
+Documentation improvements are always welcome:
+
+- Fix typos and grammar
+- Clarify confusing sections
+- Add examples
+- Update outdated information
+
+```bash
+# Documentation-only PRs
+git checkout -b docs/improve-testing-guide
+# Make changes to .md/.mdx files
+git commit -m "Improve testing guide with more examples"
+```
+
+## Coding Standards
+
+See the [Code Style Guide](/development/code-style) for detailed guidelines.
+
+### Key Points
+
+**C# Style**:
+```csharp
+// Good: Clear, descriptive names
+public async Task<User> GetUserByEmailAsync(string email)
+{
+    if (string.IsNullOrWhiteSpace(email))
+    {
+        throw new BadRequestException("Email is required.");
+    }
+    
+    return await _userRepository.GetByEmailAsync(email);
+}
+
+// Bad: Unclear, inconsistent style
+public async Task<User> get(string e) {
+    return await _userRepository.GetByEmailAsync(e);
+}
+```
+
+**File Organization**:
+```
+src/Core/
+├── Entities/          # Entity classes
+├── Enums/             # Enumerations
+├── Repositories/      # Repository interfaces
+├── Services/          # Service interfaces
+└── {Domain}/          # Domain-specific code
+    ├── Entities/
+    ├── Services/
+    └── Repositories/
+```
+
+## Git Workflow
+
+### Keeping Your Fork Updated
+
+```bash
+# Fetch upstream changes
+git fetch upstream
+
+# Update your main branch
+git checkout main
+git merge upstream/main
+git push origin main
+
+# Rebase your feature branch
+git checkout feature/my-contribution
+git rebase main
+```
+
+### Handling Conflicts
+
+```bash
+# If rebase results in conflicts
+git rebase main
+# Fix conflicts in your editor
+git add .
+git rebase --continue
+
+# Force push (only to your branch!)
+git push origin feature/my-contribution --force-with-lease
+```
+
+### Squashing Commits
+
+Maintainers may ask you to squash commits:
+
+```bash
+# Interactive rebase to squash commits
+git rebase -i HEAD~3  # Last 3 commits
+
+# In the editor, change 'pick' to 'squash' for commits to combine
+pick abc123 Initial implementation
+squash def456 Fix typo
+squash ghi789 Address PR feedback
+
+# Edit the commit message
+git push origin feature/my-contribution --force-with-lease
+```
+
+## Pre-Commit Hooks
+
+Enable automatic code formatting:
+
+```bash
+git config --local core.hooksPath .git-hooks
+```
+
+This runs `dotnet format` before each commit.
+
+## Testing Your Changes
+
+### Local Testing
+
+```bash
+# Build the solution
+dotnet build
+
+# Run unit tests
+dotnet test test/Core.Test/
+
+# Run integration tests
+dotnet test test/Api.IntegrationTest/
+
+# Run specific test
+dotnet test --filter "FullyQualifiedName~UserServiceTests"
+```
+
+### Manual Testing
+
+1. Start required services:
+   ```bash
+   docker-compose -f .devcontainer/bitwarden_common/docker-compose.yml up -d
+   ```
+
+2. Run the API:
+   ```bash
+   cd src/Api
+   dotnet run
+   ```
+
+3. Test your changes with a client application
+
+## Security Considerations
+
+See [Security Guidelines](/development/security) for detailed information.
+
+**Never commit**:
+- Passwords or API keys
+- `.env` files with real credentials
+- Secrets or private keys
+- Personal information
+
+**Security-sensitive changes**:
+- Authentication/authorization
+- Encryption/decryption
+- Password handling
+- API key management
+
+These require extra scrutiny - discuss with maintainers first.
+
+## Reporting Security Vulnerabilities
+
+**DO NOT** open public issues for security vulnerabilities.
+
+Instead:
+1. Report via [HackerOne](https://hackerone.com/bitwarden)
+2. Or email security concerns privately (see `SECURITY.md`)
+
+## Community Guidelines
+
+### Code of Conduct
+
+Be respectful, constructive, and professional:
+
+- Welcome newcomers
+- Provide constructive feedback
+- Be patient with questions
+- Respect different opinions
+
+### Getting Help
+
+- **GitHub Issues** - Bug reports and feature requests
+- **GitHub Discussions** - Questions and general discussion
+- **Contributing Docs** - https://contributing.bitwarden.com/
+
+## Recognition
+
+Contributors are recognized in:
+- GitHub contributor graphs
+- Release notes (for significant contributions)
+- Community forums
+
+## License
+
+By contributing to Bitwarden Server, you agree that your contributions will be licensed under the [AGPL 3.0 License](https://github.com/bitwarden/server/blob/main/LICENSE_AGPL.txt).
+
+Some components use the [Bitwarden License](https://github.com/bitwarden/server/blob/main/LICENSE_BITWARDEN.txt) - check the license header in files.
+
+## Resources
+
+- **Official Contributing Docs**: https://contributing.bitwarden.com/
+- **Community Forums**: https://community.bitwarden.com/
+- **GitHub Issues**: https://github.com/bitwarden/server/issues
+- **Trademark Guidelines**: `TRADEMARK_GUIDELINES.md`
+
+## Next Steps
+
+- [Local Development Setup](/development/local-setup) - Set up your environment
+- [Code Style Guide](/development/code-style) - Learn the code standards
+- [Testing Guide](/development/testing) - Write effective tests
+- [Security Guidelines](/development/security) - Understand security requirements

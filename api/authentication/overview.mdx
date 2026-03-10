@@ -1,0 +1,64 @@
+---
+title: "Authentication Overview"
+description: "Overview of Bitwarden authentication and authorization"
+---
+
+## Authentication Methods
+
+Bitwarden API supports multiple authentication methods:
+
+### OAuth 2.0
+
+The primary authentication method for accessing the Bitwarden API. Applications authenticate using OAuth 2.0 flows to obtain access tokens.
+
+**Supported Grant Types:**
+- Authorization Code
+- Client Credentials
+- Resource Owner Password Credentials
+
+### API Keys
+
+Users and organizations can generate API keys for programmatic access:
+- **Personal API Keys**: For individual user accounts
+- **Organization API Keys**: For organization-level operations
+- **Service Account Tokens**: For Secrets Manager service accounts
+
+### Session-Based Authentication
+
+Web applications use session-based authentication with secure cookies after successful login.
+
+## Authorization Policies
+
+The API uses attribute-based authorization with the following policies:
+
+- `Application` - Standard authenticated user access
+- `Web` - Web application access
+- `Organization` - Organization-scoped operations
+- `secrets` - Secrets Manager access
+
+## Security Considerations
+
+<Warning>
+Always use HTTPS when communicating with the Bitwarden API. Never transmit credentials or tokens over unencrypted connections.
+</Warning>
+
+### Best Practices
+
+1. **Rotate credentials regularly** - Update API keys and tokens periodically
+2. **Use least privilege** - Grant only necessary permissions
+3. **Secure storage** - Store credentials securely, never in source code
+4. **Monitor access** - Review audit logs for unusual activity
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Accounts" icon="user" href="/api/authentication/accounts">
+    Manage user accounts and profiles
+  </Card>
+  <Card title="Auth Requests" icon="key" href="/api/authentication/auth-requests">
+    Passwordless authentication flows
+  </Card>
+  <Card title="Two-Factor Auth" icon="shield" href="/api/authentication/two-factor">
+    Configure 2FA methods
+  </Card>
+</CardGroup>

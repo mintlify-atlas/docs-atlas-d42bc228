@@ -1,0 +1,361 @@
+---
+title: "Sync API"
+description: "Synchronize vault data across devices"
+---
+
+## Overview
+
+The Sync endpoint is the primary method for retrieving all vault data in a single request. It returns:
+
+- User profile information
+- All ciphers (vault items)
+- Folders
+- Collections
+- Organizations
+- Policies
+- Sends
+- Encryption keys
+
+<Info>
+Clients should call this endpoint periodically to keep vault data synchronized. Use the revision date to detect changes.
+</Info>
+
+## Sync Vault Data
+
+Retrieve all vault data for the authenticated user.
+
+```bash
+GET /sync?excludeDomains={excludeDomains}
+```
+
+<ParamField query="excludeDomains" type="boolean" default="false">
+  Exclude equivalent domain data from response to reduce payload size
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/sync" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+```javascript JavaScript
+const syncData = await fetch('https://api.bitwarden.com/sync', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+}).then(r => r.json());
+
+console.log('Ciphers:', syncData.ciphers.data.length);
+console.log('Folders:', syncData.folders.data.length);
+```
+</CodeGroup>
+
+## Response Structure
+
+### User Profile
+
+<ResponseField name="profile" type="object" required>
+  User account information
+</ResponseField>
+
+<ResponseField name="profile.id" type="string" required>
+  User ID
+</ResponseField>
+
+<ResponseField name="profile.name" type="string">
+  User's display name
+</ResponseField>
+
+<ResponseField name="profile.email" type="string" required>
+  User's email address
+</ResponseField>
+
+<ResponseField name="profile.twoFactorEnabled" type="boolean" required>
+  Whether 2FA is enabled
+</ResponseField>
+
+<ResponseField name="profile.premium" type="boolean" required>
+  Whether user has premium
+</ResponseField>
+
+<ResponseField name="profile.organizations" type="array">
+  User's organization memberships
+</ResponseField>
+
+<ResponseField name="profile.providers" type="array">
+  User's provider memberships
+</ResponseField>
+
+### Vault Data
+
+<ResponseField name="folders" type="object" required>
+  User's folders with data array
+</ResponseField>
+
+<ResponseField name="collections" type="object" required>
+  Organization collections accessible to user
+</ResponseField>
+
+<ResponseField name="ciphers" type="object" required>
+  All vault items (passwords, notes, cards, identities)
+</ResponseField>
+
+<ResponseField name="sends" type="object">
+  Bitwarden Send items
+</ResponseField>
+
+### Organization Data
+
+<ResponseField name="policies" type="object">
+  Organization policies that apply to user
+</ResponseField>
+
+### Encryption
+
+<ResponseField name="domains" type="object">
+  Equivalent domain data (excluded if excludeDomains=true)
+</ResponseField>
+
+### Response Format
+
+Each data section follows this structure:
+
+```json
+{
+  "object": "list",
+  "data": [
+    // Array of items
+  ],
+  "continuationToken": null
+}
+```
+
+---
+
+## Full Response Example
+
+```json
+{
+  "profile": {
+    "id": "user-guid",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "emailVerified": true,
+    "premium": true,
+    "twoFactorEnabled": true,
+    "key": "encrypted-key-data",
+    "privateKey": "encrypted-private-key",
+    "securityStamp": "stamp-value",
+    "organizations": [
+      {
+        "id": "org-guid",
+        "name": "My Organization",
+        "useGroups": true,
+        "useDirectory": true,
+        "useTotp": true,
+        "seats": 10,
+        "type": 0,
+        "status": 2,
+        "permissions": {}
+      }
+    ]
+  },
+  "folders": {
+    "object": "list",
+    "data": [
+      {
+        "id": "folder-guid",
+        "name": "2.encrypted_name",
+        "revisionDate": "2024-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "collections": {
+    "object": "list",
+    "data": [
+      {
+        "id": "collection-guid",
+        "organizationId": "org-guid",
+        "name": "2.encrypted_name",
+        "externalId": null,
+        "readOnly": false,
+        "hidePasswords": false,
+        "manage": false
+      }
+    ]
+  },
+  "ciphers": {
+    "object": "list",
+    "data": [
+      {
+        "id": "cipher-guid",
+        "type": 1,
+        "name": "2.encrypted_name",
+        "notes": "2.encrypted_notes",
+        "login": {
+          "username": "2.encrypted_username",
+          "password": "2.encrypted_password",
+          "totp": "2.encrypted_totp",
+          "uris": [
+            {"uri": "2.encrypted_uri"}
+          ]
+        },
+        "favorite": false,
+        "organizationId": null,
+        "collectionIds": [],
+        "revisionDate": "2024-01-01T00:00:00Z"
+      }
+    ]
+  },
+  "sends": {
+    "object": "list",
+    "data": []
+  },
+  "policies": {
+    "object": "list",
+    "data": []
+  },
+  "domains": {
+    "equivalentDomains": [],
+    "globalEquivalentDomains": []
+  }
+}
+```
+
+---
+
+## Sync Strategy
+
+### Full Sync
+
+Perform a full sync when:
+- User logs in
+- App starts after being closed
+- User manually triggers refresh
+
+### Incremental Sync
+
+Use revision dates to detect changes:
+
+1. Store last sync `revisionDate` locally
+2. Call `GET /accounts/revision-date` to check for updates
+3. If revision date changed, perform full sync
+4. Update stored revision date
+
+```javascript
+const lastSync = localStorage.getItem('lastSyncDate');
+const revisionDate = await fetch('/accounts/revision-date', {
+  headers: { 'Authorization': `Bearer ${token}` }
+}).then(r => r.json());
+
+if (revisionDate > lastSync) {
+  // Perform full sync
+  const syncData = await fetch('/sync');
+  localStorage.setItem('lastSyncDate', revisionDate);
+}
+```
+
+### Background Sync
+
+Recommended intervals:
+- **Active use**: Every 5-10 minutes
+- **Background**: Every 30 minutes
+- **On network change**: Immediate sync
+
+---
+
+## Performance Optimization
+
+### Reduce Payload Size
+
+1. **Use `excludeDomains=true`** if you don't need equivalent domains
+2. **Filter SSH keys** on older clients using client version checks
+3. **Compress responses** with gzip/brotli encoding
+
+### Caching Strategy
+
+```javascript
+// Cache sync data with revision tracking
+const syncCache = {
+  data: null,
+  revisionDate: null,
+  
+  async fetch(token) {
+    const currentRevision = await this.getRevisionDate(token);
+    
+    if (this.data && this.revisionDate === currentRevision) {
+      return this.data; // Return cached data
+    }
+    
+    // Fetch fresh data
+    this.data = await fetch('/sync', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json());
+    
+    this.revisionDate = currentRevision;
+    return this.data;
+  },
+  
+  async getRevisionDate(token) {
+    return fetch('/accounts/revision-date', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json());
+  }
+};
+```
+
+---
+
+## Error Handling
+
+<ResponseField name="401 Unauthorized">
+  Access token expired or invalid - trigger re-authentication
+</ResponseField>
+
+<ResponseField name="403 Forbidden">
+  User account locked or disabled
+</ResponseField>
+
+<ResponseField name="500 Server Error">
+  Server error - implement exponential backoff retry
+</ResponseField>
+
+### Retry Strategy
+
+```javascript
+async function syncWithRetry(token, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fetch('/sync', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+    } catch (error) {
+      if (i === maxRetries - 1) throw error;
+      await new Promise(r => setTimeout(r, Math.pow(2, i) * 1000));
+    }
+  }
+}
+```
+
+---
+
+## WebSocket Events
+
+For real-time sync, subscribe to WebSocket notifications:
+
+```javascript
+const ws = new WebSocket('wss://notifications.bitwarden.com');
+
+ws.on('message', async (event) => {
+  const data = JSON.parse(event.data);
+  
+  if (data.type === 'SyncCipherUpdate') {
+    // Trigger sync
+    await performSync();
+  }
+});
+```
+
+<Info>
+WebSocket notifications are recommended for active sessions to receive instant updates when vault data changes.
+</Info>

@@ -1,0 +1,484 @@
+---
+title: Database Backup and Restore
+description: Procedures for backing up and restoring Bitwarden Server databases
+---
+
+Regular database backups are critical for disaster recovery and data protection. This guide covers backup strategies, automated backups, and restoration procedures for Bitwarden Server.
+
+## Backup Overview
+
+Bitwarden Server stores all critical data in a SQL Server database (or PostgreSQL/MySQL for alternative deployments). Your backup strategy should account for:
+
+- Vault data (ciphers, collections, organizations)
+- User accounts and authentication data
+- Organizational configurations
+- Attachments and Send files (stored separately)
+- Event logs and audit data
+
+<Warning>
+Backups must include **both** the database and file storage (attachments, Send files). A database backup alone is incomplete.
+</Warning>
+
+## SQL Server Backups
+
+### Automated Backup Script
+
+Bitwarden provides an automated backup script for SQL Server deployments:
+
+**Location:** `util/MsSql/backup-db.sql` and `util/MsSql/backup-db.sh`
+
+**Backup Script Overview:**
+
+```sql
+-- Database name
+DECLARE @DatabaseName varchar(100)
+SET @DatabaseName = 'vault'
+
+-- Check recovery model and adjust if needed
+IF EXISTS (
+    SELECT 1 FROM sys.databases
+    WHERE name = @DatabaseName AND recovery_model = 1
+) AND NOT EXISTS (
+    SELECT 1 FROM msdb.dbo.backupset
+    WHERE database_name = @DatabaseName AND type = 'L'
+)
+BEGIN   
+    EXEC('ALTER DATABASE [' + @DatabaseName + '] SET RECOVERY SIMPLE')
+END
+
+-- Create backup file
+DECLARE @BackupFile varchar(100)
+SET @BackupFile = '/etc/bitwarden/mssql/backups/' + 'vault' + '_FULL_$(now).BAK'
+
+DECLARE @BackupCommand NVARCHAR(1000)
+SET @BackupCommand = 'BACKUP DATABASE [' + @DatabaseName + '] TO DISK = ''' 
+    + @BackupFile + ''' WITH INIT, NAME= ''' + @DatabaseName 
+    + ' full backup for $(now)' + ''', NOSKIP, NOFORMAT'
+
+EXEC(@BackupCommand)
+```
+
+### Backup Schedule
+
+The backup script runs automatically with configurable intervals:
+
+```bash
+#!/bin/sh
+BACKUP_INTERVAL=${BACKUP_INTERVAL:-next day}
+BACKUP_INTERVAL_FORMAT=${BACKUP_INTERVAL_FORMAT:-%Y-%m-%d 00:00:00}
+
+while true
+do
+  # Sleep until next backup time
+  if [ "$1" = "loop" ]; then
+    interval_start=`date "+${BACKUP_INTERVAL_FORMAT} %z" -d "${BACKUP_INTERVAL}"`
+    sleep $((`date +%_s -d "${interval_start}"` - `date +%_s`))
+  fi
+
+  # Backup timestamp
+  export now=$(date +%Y%m%d_%H%M%S)
+
+  # Execute backup
+  /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${SA_PASSWORD} -C -i /backup-db.sql
+
+  # Delete backups older than 30 days
+  grep -B1 "BACKUP DATABASE successfully" /var/opt/mssql/log/errorlog | grep -q _$now.BAK &&
+  find /etc/bitwarden/mssql/backups/ -mindepth 1 -type f -name '*.BAK' -mtime +32 -delete
+
+  # Break if called manually
+  [ "$1" != "loop" ] && break
+done
+```
+
+### Configuration
+
+**Environment Variables:**
+
+- `BACKUP_INTERVAL` - When to run next backup (default: `next day`)
+- `BACKUP_INTERVAL_FORMAT` - Date format for scheduling (default: `%Y-%m-%d 00:00:00`)
+- `SA_PASSWORD` - SQL Server admin password
+
+**Retention Policy:**
+
+Backups older than 30 days are automatically deleted to conserve disk space.
+
+### Manual Backup
+
+Create an immediate backup:
+
+```bash
+# Access the SQL container
+docker exec -it bitwarden-mssql /bin/bash
+
+# Run backup script manually
+/backup-db.sh
+
+# Verify backup was created
+ls -lh /etc/bitwarden/mssql/backups/
+```
+
+### Backup Location
+
+Default backup directory: `/etc/bitwarden/mssql/backups/`
+
+**Backup Filename Format:**
+```
+vault_FULL_20260310_143022.BAK
+```
+
+<Warning>
+Ensure the backup directory is mounted to a volume outside the container for persistence:
+
+```yaml
+volumes:
+  - /host/path/backups:/etc/bitwarden/mssql/backups
+```
+</Warning>
+
+## Database Restore Procedures
+
+### SQL Server Restore
+
+<Steps>
+  <Step title="Stop Bitwarden Services">
+    Stop all services to prevent data corruption:
+    ```bash
+    ./bitwarden.sh stop
+    ```
+  </Step>
+  
+  <Step title="Access SQL Server">
+    Connect to the SQL Server container:
+    ```bash
+    docker exec -it bitwarden-mssql /bin/bash
+    ```
+  </Step>
+  
+  <Step title="Restore Database">
+    Execute the restore command:
+    ```bash
+    /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+    RESTORE DATABASE vault 
+    FROM DISK = '/etc/bitwarden/mssql/backups/vault_FULL_20260310_143022.BAK' 
+    WITH REPLACE, 
+    MOVE 'vault' TO '/var/opt/mssql/data/vault.mdf',
+    MOVE 'vault_log' TO '/var/opt/mssql/data/vault_log.ldf'"
+    ```
+  </Step>
+  
+  <Step title="Verify Restore">
+    Check database integrity:
+    ```sql
+    USE vault;
+    DBCC CHECKDB;
+    SELECT COUNT(*) FROM [dbo].[User];
+    ```
+  </Step>
+  
+  <Step title="Restart Services">
+    Start Bitwarden services:
+    ```bash
+    ./bitwarden.sh start
+    ```
+  </Step>
+</Steps>
+
+### Point-in-Time Recovery
+
+For point-in-time recovery, you need transaction log backups:
+
+```sql
+-- Set database to FULL recovery model
+ALTER DATABASE vault SET RECOVERY FULL;
+
+-- Create full backup
+BACKUP DATABASE vault TO DISK = '/backups/vault_full.bak';
+
+-- Create transaction log backups every hour
+BACKUP LOG vault TO DISK = '/backups/vault_log.trn';
+```
+
+**Restore to specific time:**
+
+```sql
+-- Restore full backup
+RESTORE DATABASE vault 
+FROM DISK = '/backups/vault_full.bak' 
+WITH NORECOVERY, REPLACE;
+
+-- Restore transaction log to specific point
+RESTORE LOG vault 
+FROM DISK = '/backups/vault_log.trn' 
+WITH STOPAT = '2026-03-10 14:30:00', RECOVERY;
+```
+
+## File Storage Backups
+
+### Attachment Storage
+
+Backup attachment files separately from the database:
+
+```bash
+# For local file storage
+tar -czf attachments_$(date +%Y%m%d).tar.gz /etc/bitwarden/core/attachments/
+
+# For Azure Blob Storage - use AzCopy
+azCopy sync "/etc/bitwarden/core/attachments" \
+  "https://storageaccount.blob.core.windows.net/backups" \
+  --recursive
+```
+
+### Send Files
+
+Backup Send file storage:
+
+```bash
+tar -czf send_files_$(date +%Y%m%d).tar.gz /etc/bitwarden/core/attachments/send/
+```
+
+### Complete Backup Strategy
+
+Create a comprehensive backup script:
+
+```bash
+#!/bin/bash
+
+BACKUP_DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="/backups/bitwarden_${BACKUP_DATE}"
+
+mkdir -p "${BACKUP_DIR}"
+
+# Backup database
+docker exec bitwarden-mssql /backup-db.sh
+cp /etc/bitwarden/mssql/backups/*.BAK "${BACKUP_DIR}/"
+
+# Backup attachments
+tar -czf "${BACKUP_DIR}/attachments.tar.gz" /etc/bitwarden/core/attachments/
+
+# Backup configuration
+tar -czf "${BACKUP_DIR}/config.tar.gz" /etc/bitwarden/config/
+
+# Backup licenses
+tar -czf "${BACKUP_DIR}/licenses.tar.gz" /etc/bitwarden/core/licenses/
+
+# Create manifest
+cat > "${BACKUP_DIR}/manifest.txt" << EOF
+Backup Date: ${BACKUP_DATE}
+Database: $(ls -lh ${BACKUP_DIR}/*.BAK)
+Attachments: $(du -sh /etc/bitwarden/core/attachments/)
+Configuration Files: Included
+Licenses: Included
+EOF
+
+# Compress entire backup
+tar -czf "/backups/bitwarden_${BACKUP_DATE}.tar.gz" -C /backups "bitwarden_${BACKUP_DATE}"
+rm -rf "${BACKUP_DIR}"
+
+echo "Backup completed: bitwarden_${BACKUP_DATE}.tar.gz"
+```
+
+## Migration and Upgrade Backups
+
+Before performing migrations or upgrades:
+
+<Steps>
+  <Step title="Create Pre-Migration Backup">
+    Always create a backup before migrations:
+    ```bash
+    ./backup-full.sh
+    ```
+  </Step>
+  
+  <Step title="Verify Backup Integrity">
+    Test the backup can be restored:
+    ```bash
+    # Restore to test environment
+    ./restore-test.sh bitwarden_backup.tar.gz
+    ```
+  </Step>
+  
+  <Step title="Run Migration">
+    Execute database migrations (see `util/Migrator/DbMigrator.cs:31`):
+    ```bash
+    docker run --rm bitwarden/migrator
+    ```
+  </Step>
+  
+  <Step title="Verify Migration">
+    Check migration success:
+    ```sql
+    SELECT * FROM [dbo].[Migration] ORDER BY [AppliedDate] DESC;
+    ```
+  </Step>
+</Steps>
+
+### Database Migration System
+
+Bitwarden uses DbUp for database migrations with automatic retry logic:
+
+**Key Features:**
+- Automatic database creation if missing
+- Transaction-wrapped migrations
+- Script versioning and tracking
+- Retry logic for script upgrade mode
+- 5-minute timeout per script
+
+**Migration Tracking:**
+```sql
+SELECT 
+    ScriptName,
+    Applied,
+    AppliedDate
+FROM [dbo].[Migration]
+ORDER BY AppliedDate DESC;
+```
+
+## Offsite Backup Storage
+
+### Cloud Storage Options
+
+**AWS S3:**
+```bash
+#!/bin/bash
+BACKUP_FILE="bitwarden_$(date +%Y%m%d).tar.gz"
+aws s3 cp "${BACKUP_FILE}" "s3://my-backups/bitwarden/" \
+  --storage-class STANDARD_IA \
+  --sse AES256
+```
+
+**Azure Blob Storage:**
+```bash
+az storage blob upload \
+  --account-name mybackups \
+  --container-name bitwarden \
+  --file "${BACKUP_FILE}" \
+  --name "bitwarden/$(date +%Y%m%d)/${BACKUP_FILE}"
+```
+
+**Google Cloud Storage:**
+```bash
+gsutil cp "${BACKUP_FILE}" "gs://my-backups/bitwarden/"
+```
+
+### Backup Encryption
+
+Encrypt backups before offsite storage:
+
+```bash
+# Encrypt with GPG
+gpg --symmetric --cipher-algo AES256 bitwarden_backup.tar.gz
+
+# Or use openssl
+openssl enc -aes-256-cbc -salt -in bitwarden_backup.tar.gz \
+  -out bitwarden_backup.tar.gz.enc -k "${ENCRYPTION_KEY}"
+```
+
+## Disaster Recovery
+
+### Recovery Time Objective (RTO)
+
+Typical restoration times:
+
+- **Small deployment** (less than 1000 users): 15-30 minutes
+- **Medium deployment** (1000-10000 users): 30-60 minutes
+- **Large deployment** (more than 10000 users): 1-2 hours
+
+### Recovery Point Objective (RPO)
+
+Recommended backup frequency:
+
+- **Database**: Daily full, hourly transaction logs
+- **Files**: Daily incremental, weekly full
+- **Configuration**: After each change
+
+### Disaster Recovery Checklist
+
+<Steps>
+  <Step title="Assess Damage">
+    Determine scope of data loss and last known good backup.
+  </Step>
+  
+  <Step title="Provision Infrastructure">
+    Deploy new servers or repair existing infrastructure.
+  </Step>
+  
+  <Step title="Restore Database">
+    Restore database from most recent backup.
+  </Step>
+  
+  <Step title="Restore Files">
+    Restore attachment and Send file storage.
+  </Step>
+  
+  <Step title="Restore Configuration">
+    Apply configuration files and environment variables.
+  </Step>
+  
+  <Step title="Verify Functionality">
+    Test critical functions: login, vault access, sharing.
+  </Step>
+  
+  <Step title="Resume Operations">
+    Update DNS and redirect traffic to restored environment.
+  </Step>
+  
+  <Step title="Post-Incident Review">
+    Document incident and improve backup/recovery procedures.
+  </Step>
+</Steps>
+
+## Backup Monitoring
+
+### Verify Backup Success
+
+```bash
+#!/bin/bash
+# Check if today's backup exists
+BACKUP_FILE="vault_FULL_$(date +%Y%m%d)*.BAK"
+
+if ls /etc/bitwarden/mssql/backups/${BACKUP_FILE} 1> /dev/null 2>&1; then
+    echo "Backup successful: $(ls -lh /etc/bitwarden/mssql/backups/${BACKUP_FILE})"
+    exit 0
+else
+    echo "ALERT: Backup missing for $(date +%Y%m%d)"
+    exit 1
+fi
+```
+
+### Automated Alerts
+
+Configure monitoring alerts for:
+- Backup failures
+- Disk space issues in backup directory
+- Backup files not transferred to offsite storage
+- Backup age exceeding 24 hours
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="3-2-1 Rule" icon="shield-check">
+    Maintain 3 copies of data, on 2 different media types, with 1 copy offsite.
+  </Card>
+  
+  <Card title="Test Restores" icon="rotate-right">
+    Regularly test restore procedures (monthly recommended). Untested backups are not backups.
+  </Card>
+  
+  <Card title="Encrypt Backups" icon="lock">
+    Encrypt all backups, especially those stored offsite or in cloud storage.
+  </Card>
+  
+  <Card title="Monitor Storage" icon="hard-drive">
+    Alert when backup storage exceeds 80% capacity to prevent failures.
+  </Card>
+</CardGroup>
+
+<Warning>
+Never delete old backups until new backups are verified. Always maintain at least 3 generations of backups.
+</Warning>
+
+## Related Resources
+
+- [Update Procedures](/operations/updates)
+- [Troubleshooting Guide](/operations/troubleshooting)
+- [Security Best Practices](/operations/security-best-practices)

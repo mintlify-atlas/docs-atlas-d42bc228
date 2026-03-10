@@ -1,0 +1,678 @@
+---
+title: Troubleshooting Guide
+description: Common issues, diagnostic procedures, and solutions for Bitwarden Server
+---
+
+This guide helps diagnose and resolve common issues with Bitwarden Server deployments. For each problem, we provide symptoms, root causes, and step-by-step solutions.
+
+## Diagnostic Tools
+
+### Service Health Checks
+
+```bash
+# Check container status
+docker ps -a | grep bitwarden
+
+# Test health endpoints
+curl http://localhost/healthz
+curl http://localhost/healthz/extended
+
+# View service logs
+docker logs --tail 100 bitwarden-api
+docker logs --tail 100 bitwarden-identity
+docker logs --tail 100 bitwarden-mssql
+```
+
+### Database Connectivity
+
+```bash
+# Test SQL Server connection
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C \
+  -Q "SELECT @@VERSION;"
+
+# Check database state
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C \
+  -Q "SELECT name, state_desc FROM sys.databases WHERE name = 'vault';"
+```
+
+### Network Diagnostics
+
+```bash
+# Test service connectivity from API container
+docker exec bitwarden-api curl -I http://identity:5000
+
+# Check DNS resolution
+docker exec bitwarden-api nslookup identity
+
+# Verify port bindings
+netstat -tulpn | grep -E '(80|443|5000)'
+```
+
+## Authentication Issues
+
+### Login Failures
+
+**Symptoms:**
+- Users cannot log in
+- "Invalid username or password" errors
+- Timeout during authentication
+
+**Common Causes:**
+
+<AccordionGroup>
+  <Accordion title="Identity Service Unavailable">
+    **Check:** Identity service status
+    ```bash
+    docker ps | grep identity
+    docker logs bitwarden-identity --tail 50
+    ```
+    
+    **Solution:**
+    ```bash
+    docker-compose restart identity
+    ```
+    
+    If service won't start, check configuration:
+    ```bash
+    docker exec bitwarden-identity cat /app/appsettings.json
+    ```
+  </Accordion>
+  
+  <Accordion title="Database Connection Issues">
+    **Check:** Database connectivity from Identity service
+    ```bash
+    docker exec bitwarden-identity cat /etc/bitwarden/config.yml
+    ```
+    
+    **Solution:**
+    Verify connection string in `globalSettings.sqlServer.connectionString`:
+    ```yaml
+    database:
+      connectionString: "Server=mssql;Database=vault;User Id=sa;Password=***"
+    ```
+  </Accordion>
+  
+  <Accordion title="Certificate Issues">
+    **Symptoms:** SSL/TLS errors, "Invalid token" messages
+    
+    **Check:** Certificate configuration
+    ```bash
+    ls -la /etc/bitwarden/identity/
+    docker logs bitwarden-identity | grep -i certificate
+    ```
+    
+    **Solution:**
+    Regenerate data protection certificates:
+    ```bash
+    ./bitwarden.sh rebuild
+    ```
+  </Accordion>
+  
+  <Accordion title="Rate Limiting">
+    **Symptoms:** Login works intermittently, 429 errors
+    
+    **Check:** Rate limit configuration in `appsettings.json`
+    ```json
+    {
+      "IpRateLimitOptions": {
+        "GeneralRules": [
+          {
+            "Endpoint": "post:/connect/token",
+            "Period": "1m",
+            "Limit": 10
+          }
+        ]
+      }
+    }
+    ```
+    
+    **Solution:**
+    Adjust rate limits or whitelist specific IPs:
+    ```json
+    {
+      "IpRateLimitOptions": {
+        "IpWhitelist": ["10.0.0.0/8"]
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Two-Factor Authentication Issues
+
+**Symptoms:**
+- 2FA codes not working
+- Email 2FA not received
+- Authenticator app code rejected
+
+**Diagnostic Steps:**
+
+<Steps>
+  <Step title="Check Email Delivery">
+    Verify email configuration:
+    ```bash
+    docker exec bitwarden-api cat /etc/bitwarden/config.yml | grep -A 10 mail
+    ```
+    
+    Test email service:
+    ```bash
+    docker logs bitwarden-api | grep -i "mail\|smtp\|sendgrid"
+    ```
+  </Step>
+  
+  <Step title="Verify Time Sync">
+    TOTP codes require accurate time:
+    ```bash
+    # Check server time
+    docker exec bitwarden-identity date
+    
+    # Sync if needed
+    sudo ntpdate -s time.nist.gov
+    ```
+  </Step>
+  
+  <Step title="Check 2FA Rate Limits">
+    2FA endpoints have rate limiting:
+    ```json
+    {
+      "Endpoint": "post:/two-factor/send-email",
+      "Period": "10m",
+      "Limit": 5
+    }
+    ```
+  </Step>
+</Steps>
+
+## Vault Access Issues
+
+### Cannot Access Items
+
+**Symptoms:**
+- Vault appears empty
+- Specific items not visible
+- "Access denied" errors
+
+**Troubleshooting:**
+
+```bash
+# Check user permissions in database
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+  SELECT u.Email, ou.Status, ou.Type 
+  FROM [dbo].[User] u 
+  JOIN [dbo].[OrganizationUser] ou ON u.Id = ou.UserId 
+  WHERE u.Email = 'user@example.com';
+  "
+
+# Check collection access
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+  SELECT c.Name, cg.ReadOnly, cg.HidePasswords
+  FROM [dbo].[Collection] c
+  JOIN [dbo].[CollectionGroup] cg ON c.Id = cg.CollectionId
+  WHERE c.OrganizationId = '<org-id>';
+  "
+```
+
+### Sync Failures
+
+**Symptoms:**
+- Changes not syncing across devices
+- "Sync failed" errors
+- Stale data displayed
+
+**Solutions:**
+
+<Steps>
+  <Step title="Check Notifications Service">
+    ```bash
+    docker ps | grep notifications
+    curl http://localhost:5000/healthz
+    ```
+  </Step>
+  
+  <Step title="Verify WebSocket Connection">
+    Check for WebSocket errors in browser console
+    
+    Test WebSocket endpoint:
+    ```bash
+    wscat -c ws://localhost/notifications/hub
+    ```
+  </Step>
+  
+  <Step title="Review Notification Hub Configuration">
+    For Azure Notification Hub deployments:
+    ```json
+    {
+      "notificationHub": {
+        "connectionString": "Endpoint=sb://...",
+        "hubName": "bitwarden"
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Performance Issues
+
+### Slow Response Times
+
+**Symptoms:**
+- API requests take >2 seconds
+- Timeout errors
+- High CPU/memory usage
+
+**Diagnostic Steps:**
+
+```bash
+# Check resource usage
+docker stats
+
+# Identify slow queries
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+  SELECT TOP 10 
+      total_elapsed_time/execution_count AS avg_time_ms,
+      execution_count,
+      SUBSTRING(st.text, (qs.statement_start_offset/2)+1,
+      ((CASE qs.statement_end_offset
+        WHEN -1 THEN DATALENGTH(st.text)
+        ELSE qs.statement_end_offset
+      END - qs.statement_start_offset)/2) + 1) AS statement_text
+  FROM sys.dm_exec_query_stats AS qs
+  CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
+  ORDER BY total_elapsed_time/execution_count DESC;
+  "
+
+# Check for blocking
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+  SELECT * FROM sys.dm_exec_requests WHERE blocking_session_id <> 0;
+  "
+```
+
+**Solutions:**
+
+<AccordionGroup>
+  <Accordion title="Database Performance">
+    **Index Fragmentation:**
+    ```sql
+    -- Check fragmentation
+    SELECT OBJECT_NAME(object_id), avg_fragmentation_in_percent
+    FROM sys.dm_db_index_physical_stats(DB_ID(), NULL, NULL, NULL, 'LIMITED')
+    WHERE avg_fragmentation_in_percent > 30;
+    
+    -- Rebuild indexes
+    EXEC sp_MSforeachtable 'ALTER INDEX ALL ON ? REBUILD';
+    ```
+    
+    **Statistics Update:**
+    ```sql
+    EXEC sp_updatestats;
+    ```
+  </Accordion>
+  
+  <Accordion title="Connection Pool Exhaustion">
+    Increase connection pool size in connection string:
+    ```
+    Server=mssql;Database=vault;User Id=sa;Password=***;Min Pool Size=10;Max Pool Size=100;
+    ```
+  </Accordion>
+  
+  <Accordion title="Resource Limits">
+    Increase container resources:
+    ```yaml
+    services:
+      api:
+        deploy:
+          resources:
+            limits:
+              cpus: '2.0'
+              memory: 2G
+            reservations:
+              cpus: '1.0'
+              memory: 1G
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### High Memory Usage
+
+**Check Memory Usage:**
+```bash
+# Container memory
+docker stats --no-stream
+
+# Host memory
+free -h
+```
+
+**Solutions:**
+- Reduce log verbosity (change to `Warning` level)
+- Implement log rotation with size limits
+- Clear old logs: `find /etc/bitwarden/logs -mtime +7 -delete`
+- Increase container memory limits
+
+## Database Issues
+
+### Database Connection Errors
+
+**Error Message:** `Login failed for user 'sa'`
+
+**Solutions:**
+
+<Steps>
+  <Step title="Verify Password">
+    Check SA password in environment:
+    ```bash
+    docker exec bitwarden-mssql printenv | grep SA_PASSWORD
+    ```
+  </Step>
+  
+  <Step title="Reset SA Password">
+    ```bash
+    docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+      -S localhost -U sa -P "${OLD_PASSWORD}" -C \
+      -Q "ALTER LOGIN sa WITH PASSWORD='${NEW_PASSWORD}';"
+    ```
+    
+    Update configuration with new password.
+  </Step>
+  
+  <Step title="Check SQL Server State">
+    ```bash
+    docker logs bitwarden-mssql --tail 50
+    ```
+    
+    Look for:
+    - "SQL Server is now ready for client connections"
+    - Error messages about recovery or startup
+  </Step>
+</Steps>
+
+### Migration Failures
+
+**Error:** `Server is in script upgrade mode`
+
+**Solution:**
+The migrator includes automatic retry logic (up to 10 attempts). If it persists:
+
+```bash
+# Check for blocking processes
+docker exec -it bitwarden-mssql /opt/mssql-tools18/bin/sqlcmd \
+  -S localhost -U sa -P "${SA_PASSWORD}" -C -Q "
+  SELECT session_id, blocking_session_id, wait_type, wait_time
+  FROM sys.dm_exec_requests
+  WHERE blocking_session_id <> 0;
+  "
+
+# Kill blocking session if found
+KILL <session_id>;
+```
+
+**Error:** Migration script timeout
+
+**Solution:**
+For large migrations, increase timeout:
+- Default: 5 minutes
+- Large migrations: 60 minutes (automatic for `noTransactionMigration`)
+
+See `util/Migrator/DbMigrator.cs:131` for configuration.
+
+### Database Corruption
+
+**Symptoms:**
+- CHECKDB errors
+- Consistency errors in logs
+- Random query failures
+
+**Diagnostic:**
+```sql
+DBCC CHECKDB (vault) WITH NO_INFOMSGS;
+```
+
+**Recovery:**
+<Steps>
+  <Step title="Attempt Automatic Repair">
+    ```sql
+    DBCC CHECKDB (vault, REPAIR_REBUILD);
+    ```
+  </Step>
+  
+  <Step title="Restore from Backup">
+    If automatic repair fails, restore from backup:
+    ```bash
+    ./bitwarden.sh stop
+    # Restore database (see Backup/Restore guide)
+    ./bitwarden.sh start
+    ```
+  </Step>
+</Steps>
+
+## Service-Specific Issues
+
+### API Service Issues
+
+**Symptoms:**
+- 500 Internal Server Error
+- API endpoints not responding
+- Unhandled exceptions in logs
+
+**Implementation Reference:** `src/SharedWeb/Utilities/ExceptionHandlerFilterAttribute.cs`
+
+**Error Types:**
+
+| Exception Type | HTTP Status | Meaning |
+|---------------|-------------|----------|
+| BadRequestException | 400 | Invalid request data |
+| GatewayException | 502 | Upstream service failure |
+| NotFoundException | 404 | Resource not found |
+| SecurityTokenValidationException | 401 | Invalid/expired token |
+| UnauthorizedAccessException | 401 | Insufficient permissions |
+| (Other) | 500 | Unhandled error |
+
+**Check Logs:**
+```bash
+docker logs bitwarden-api | grep -i "error\|exception" | tail -50
+```
+
+### Identity Service Issues
+
+**Symptoms:**
+- Token generation failures
+- OpenID configuration errors
+- Certificate errors
+
+**Check Configuration:**
+```bash
+# Verify Identity configuration
+docker exec bitwarden-identity cat /etc/bitwarden/config.yml
+
+# Test OpenID endpoint
+curl http://localhost/.well-known/openid-configuration
+```
+
+### Admin Portal Issues
+
+**Symptoms:**
+- Cannot access admin portal
+- "Access denied" on admin pages
+- System information not loading
+
+**Solutions:**
+- Verify admin user has proper role
+- Check admin service logs
+- Ensure license is valid and not expired
+
+## SSL/TLS Issues
+
+### Certificate Errors
+
+**Symptoms:**
+- SSL handshake failures
+- Certificate validation errors
+- "NET::ERR_CERT_AUTHORITY_INVALID"
+
+**Solutions:**
+
+<Steps>
+  <Step title="Verify Certificate">
+    ```bash
+    openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
+    ```
+  </Step>
+  
+  <Step title="Check Certificate Chain">
+    Ensure full certificate chain is installed:
+    ```bash
+    cat server.crt intermediate.crt root.crt > fullchain.pem
+    ```
+  </Step>
+  
+  <Step title="Validate Certificate Dates">
+    ```bash
+    openssl x509 -in /etc/bitwarden/ssl/certificate.crt -noout -dates
+    ```
+  </Step>
+  
+  <Step title="Update Certificate">
+    ```bash
+    # Copy new certificate
+    cp new-cert.crt /etc/bitwarden/ssl/certificate.crt
+    cp new-key.key /etc/bitwarden/ssl/private.key
+    
+    # Restart nginx
+    docker-compose restart nginx
+    ```
+  </Step>
+</Steps>
+
+## File Storage Issues
+
+### Attachment Upload Failures
+
+**Symptoms:**
+- "Failed to upload" errors
+- Attachments not appearing
+- Storage errors in logs
+
+**Check Configuration:**
+```bash
+# Verify storage configuration
+docker exec bitwarden-api cat /etc/bitwarden/config.yml | grep -A 5 attachment
+```
+
+**For Local Storage:**
+```bash
+# Check permissions
+ls -la /etc/bitwarden/core/attachments/
+chown -R bitwarden:bitwarden /etc/bitwarden/core/attachments/
+
+# Check disk space
+df -h /etc/bitwarden/
+```
+
+**For Azure Blob Storage:**
+```bash
+# Test connection string
+az storage blob list \
+  --account-name <account> \
+  --container-name attachments \
+  --connection-string "${CONNECTION_STRING}"
+```
+
+## Logging and Debugging
+
+### Enable Debug Logging
+
+Temporarily enable verbose logging:
+
+```json
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Debug",
+      "Bit.Api": "Trace",
+      "Bit.Core": "Debug"
+    }
+  }
+}
+```
+
+<Warning>
+Debug/Trace logging generates significant log volume. Only enable for troubleshooting and revert to `Warning` or `Information` afterwards.
+</Warning>
+
+### Collect Diagnostic Information
+
+```bash
+#!/bin/bash
+# Diagnostic collection script
+
+DIAG_DIR="bitwarden-diagnostics-$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$DIAG_DIR"
+
+# Container status
+docker ps -a > "$DIAG_DIR/containers.txt"
+
+# Logs from all services
+for service in api identity admin notifications events; do
+    docker logs "bitwarden-$service" > "$DIAG_DIR/$service.log" 2>&1
+done
+
+# System info
+uname -a > "$DIAG_DIR/system.txt"
+df -h >> "$DIAG_DIR/system.txt"
+free -h >> "$DIAG_DIR/system.txt"
+
+# Network info
+docker network inspect bitwarden_default > "$DIAG_DIR/network.json"
+
+# Create archive
+tar -czf "$DIAG_DIR.tar.gz" "$DIAG_DIR"
+rm -rf "$DIAG_DIR"
+
+echo "Diagnostics collected: $DIAG_DIR.tar.gz"
+```
+
+## Getting Help
+
+### Before Requesting Support
+
+<Steps>
+  <Step title="Check Logs">
+    Review service logs for error messages and stack traces.
+  </Step>
+  
+  <Step title="Search Documentation">
+    Search this documentation and Bitwarden community forums.
+  </Step>
+  
+  <Step title="Verify Configuration">
+    Double-check configuration files against documentation.
+  </Step>
+  
+  <Step title="Test in Isolation">
+    Try to reproduce the issue with minimal configuration.
+  </Step>
+</Steps>
+
+### Information to Provide
+
+When requesting support, include:
+
+- Bitwarden Server version
+- Deployment type (Docker, Kubernetes, etc.)
+- Operating system and version
+- Relevant error messages and logs
+- Steps to reproduce the issue
+- Recent changes to configuration
+
+## Related Resources
+
+- [Health Check Configuration](/operations/health-checks)
+- [Logging Configuration](/operations/logging)
+- [Backup and Restore](/operations/backup-restore)
+- [Update Procedures](/operations/updates)

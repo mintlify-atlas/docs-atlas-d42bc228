@@ -1,0 +1,593 @@
+---
+title: Docker Deployment
+description: Deploy Bitwarden Server using Docker and Docker Compose
+---
+
+## Overview
+
+Bitwarden Server can be deployed using Docker containers on Windows, macOS, and Linux. The official Docker images are available on [GitHub Container Registry](https://github.com/orgs/bitwarden/packages).
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Docker" icon="docker">
+    Docker Engine 20.10+ or Docker Desktop
+  </Card>
+  <Card title="Docker Compose" icon="layer-group">
+    Docker Compose v2.0+ (included with Docker Desktop)
+  </Card>
+  <Card title="System Resources" icon="server">
+    Minimum: 2 CPU cores, 4GB RAM, 20GB disk
+  </Card>
+  <Card title="Domain Name" icon="globe">
+    Domain with SSL certificate for production
+  </Card>
+</CardGroup>
+
+<Info>
+  For production deployments, ensure your system meets the recommended specifications: 4+ CPU cores, 8GB+ RAM, and SSD storage.
+</Info>
+
+## Quick Start
+
+Use the official installation scripts for the fastest setup:
+
+<Tabs>
+  <Tab title="Linux / macOS">
+    ```bash
+    # Download the installation script
+    curl -s -L -o bitwarden.sh \
+        "https://func.bitwarden.com/api/dl/?app=self-host&platform=linux" \
+        && chmod +x bitwarden.sh
+    
+    # Run installation wizard
+    ./bitwarden.sh install
+    
+    # Start services
+    ./bitwarden.sh start
+    
+    # View status
+    ./bitwarden.sh status
+    ```
+    
+    The script will prompt you for:
+    - Installation directory
+    - Domain name
+    - SSL certificate configuration
+    - Database password
+    - Admin email
+  </Tab>
+  
+  <Tab title="Windows">
+    ```powershell
+    # Download the installation script
+    Invoke-RestMethod -OutFile bitwarden.ps1 `
+        -Uri "https://func.bitwarden.com/api/dl/?app=self-host&platform=windows"
+    
+    # Run installation wizard
+    .\bitwarden.ps1 -install
+    
+    # Start services
+    .\bitwarden.ps1 -start
+    
+    # View status
+    .\bitwarden.ps1 -status
+    ```
+  </Tab>
+</Tabs>
+
+## Docker Compose Configuration
+
+### Development Setup
+
+For local development and testing, use this minimal `docker-compose.yml`:
+
+```yaml docker-compose.yml
+version: "3.9"
+
+services:
+  # Database
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD}
+      MSSQL_PID: Developer
+    volumes:
+      - mssql_data:/var/opt/mssql
+    ports:
+      - "1433:1433"
+    networks:
+      - bitwarden
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - bitwarden
+
+  # Azure Storage Emulator (Azurite)
+  storage:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    ports:
+      - "10000:10000"
+      - "10001:10001"
+      - "10002:10002"
+    volumes:
+      - azurite_data:/data
+    networks:
+      - bitwarden
+
+  # Mail Server (Development)
+  mail:
+    image: sj26/mailcatcher:latest
+    ports:
+      - "1080:1080"  # Web UI
+      - "1025:1025"  # SMTP
+    networks:
+      - bitwarden
+
+  # RabbitMQ Message Bus
+  rabbitmq:
+    image: rabbitmq:4.2.0-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-bitwarden}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+    ports:
+      - "5672:5672"   # AMQP
+      - "15672:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - bitwarden
+
+volumes:
+  mssql_data:
+  redis_data:
+  azurite_data:
+  rabbitmq_data:
+
+networks:
+  bitwarden:
+    driver: bridge
+```
+
+### Production Setup
+
+For production deployments with all services:
+
+```yaml docker-compose.prod.yml
+version: "3.9"
+
+services:
+  # Nginx Reverse Proxy
+  nginx:
+    image: ghcr.io/bitwarden/nginx:latest
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/ssl/bitwarden:ro
+      - ./logs/nginx:/var/log/nginx
+    networks:
+      - bitwarden
+    depends_on:
+      - api
+      - identity
+      - admin
+
+  # Database
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: always
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_PASSWORD}
+      MSSQL_PID: Enterprise
+    volumes:
+      - mssql_data:/var/opt/mssql
+      - ./backups:/backups
+    networks:
+      - bitwarden
+
+  # Redis
+  redis:
+    image: redis:alpine
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - bitwarden
+
+  # API Service
+  api:
+    image: ghcr.io/bitwarden/api:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+      globalSettings__identityServer__certificateThumbprint: ${IDENTITY_CERT_THUMBPRINT}
+      globalSettings__siteName: ${SITE_NAME}
+      globalSettings__baseServiceUri__api: https://${DOMAIN}/api
+      globalSettings__baseServiceUri__identity: https://${DOMAIN}/identity
+    volumes:
+      - ./core/attachments:/etc/bitwarden/core/attachments
+      - ./logs/api:/etc/bitwarden/logs
+      - ./ssl:/etc/ssl/bitwarden:ro
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+      - redis
+
+  # Identity Service
+  identity:
+    image: ghcr.io/bitwarden/identity:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+      globalSettings__identityServer__certificateThumbprint: ${IDENTITY_CERT_THUMBPRINT}
+    volumes:
+      - ./identity:/etc/bitwarden/identity
+      - ./logs/identity:/etc/bitwarden/logs
+      - ./ssl:/etc/ssl/bitwarden:ro
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+  # Admin Service
+  admin:
+    image: ghcr.io/bitwarden/admin:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    volumes:
+      - ./logs/admin:/etc/bitwarden/logs
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+  # Notifications Service
+  notifications:
+    image: ghcr.io/bitwarden/notifications:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+      - redis
+
+  # Events Service
+  events:
+    image: ghcr.io/bitwarden/events:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+  # Events Processor
+  events-processor:
+    image: ghcr.io/bitwarden/events-processor:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+  # Icons Service
+  icons:
+    image: ghcr.io/bitwarden/icons:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+    volumes:
+      - ./core/icons:/etc/bitwarden/core/icons
+    networks:
+      - bitwarden
+
+  # SSO Service (Enterprise)
+  sso:
+    image: ghcr.io/bitwarden/sso:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+  # SCIM Service (Enterprise)
+  scim:
+    image: ghcr.io/bitwarden/scim:latest
+    restart: always
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      globalSettings__sqlServer__connectionString: "Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};TrustServerCertificate=True;"
+    networks:
+      - bitwarden
+    depends_on:
+      - mssql
+
+volumes:
+  mssql_data:
+  redis_data:
+
+networks:
+  bitwarden:
+    driver: bridge
+```
+
+### Environment Variables
+
+Create a `.env` file in the same directory as `docker-compose.yml`:
+
+```bash .env
+# Domain Configuration
+DOMAIN=vault.example.com
+SITE_NAME=Bitwarden
+
+# Database
+MSSQL_PASSWORD=YourStrongPassword123!
+
+# Redis
+REDIS_PASSWORD=YourRedisPassword123!
+
+# Certificates
+IDENTITY_CERT_THUMBPRINT=YOUR_CERT_THUMBPRINT_HERE
+
+# RabbitMQ (if used instead of Azure Service Bus)
+RABBITMQ_USER=bitwarden
+RABBITMQ_PASS=YourRabbitMQPassword123!
+
+# Admin Email
+ADMIN_EMAIL=admin@example.com
+```
+
+<Warning>
+  **Security**: Never commit `.env` files to version control. Use `.gitignore` to exclude them.
+</Warning>
+
+## Container Management
+
+### Starting Services
+
+```bash
+# Start all services
+docker compose up -d
+
+# Start specific services
+docker compose up -d api identity mssql
+
+# View logs
+docker compose logs -f api
+
+# View all container logs
+docker compose logs -f
+```
+
+### Stopping Services
+
+```bash
+# Stop all services
+docker compose down
+
+# Stop and remove volumes (data will be lost!)
+docker compose down -v
+
+# Stop specific service
+docker compose stop api
+```
+
+### Updating Images
+
+```bash
+# Pull latest images
+docker compose pull
+
+# Recreate containers with new images
+docker compose up -d --force-recreate
+
+# View running containers
+docker compose ps
+```
+
+## Database Initialization
+
+Run database migrations before first use:
+
+```bash
+# Using the migrator utility
+docker run --rm \
+  -e "globalSettings__sqlServer__connectionString=Server=mssql;Database=vault;User Id=sa;Password=${MSSQL_PASSWORD};" \
+  --network bitwarden_default \
+  ghcr.io/bitwarden/mssqlmigratorutility:latest
+```
+
+See [Database Setup](/deployment/database-setup) for detailed migration instructions.
+
+## Health Checks
+
+Verify services are running:
+
+```bash
+# Check API health
+curl https://your-domain.com/api/alive
+
+# Check Identity health
+curl https://your-domain.com/identity/.well-known/openid-configuration
+
+# View container health status
+docker compose ps
+```
+
+## Resource Limits
+
+Set resource limits in `docker-compose.yml` for production:
+
+```yaml
+services:
+  api:
+    image: ghcr.io/bitwarden/api:latest
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+```
+
+## Logging
+
+### Log Configuration
+
+```yaml
+services:
+  api:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+```
+
+### View Logs
+
+```bash
+# All services
+docker compose logs
+
+# Specific service
+docker compose logs api
+
+# Follow logs
+docker compose logs -f --tail=100 api
+
+# Logs since timestamp
+docker compose logs --since 2024-01-01T00:00:00 api
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Containers won't start">
+    **Symptoms**: Services exit immediately or fail to start
+    
+    **Solutions**:
+    - Check logs: `docker compose logs <service>`
+    - Verify environment variables are set
+    - Ensure ports are not already in use
+    - Check database connectivity
+    - Verify certificate configuration
+  </Accordion>
+  
+  <Accordion title="Database connection errors">
+    **Symptoms**: "Cannot connect to SQL Server" errors
+    
+    **Solutions**:
+    - Verify MSSQL container is running: `docker compose ps mssql`
+    - Check password complexity requirements
+    - Ensure connection string is correct
+    - Verify network connectivity: `docker network ls`
+    - Check SQL Server logs: `docker compose logs mssql`
+  </Accordion>
+  
+  <Accordion title="Certificate errors">
+    **Symptoms**: SSL/TLS handshake failures
+    
+    **Solutions**:
+    - Verify certificate files are mounted correctly
+    - Check certificate permissions
+    - Ensure certificate is valid (not expired)
+    - Verify certificate thumbprint matches
+    - See [SSL Certificates](/deployment/ssl-certificates)
+  </Accordion>
+  
+  <Accordion title="Out of memory errors">
+    **Symptoms**: Containers restarting, OOM killed
+    
+    **Solutions**:
+    - Increase Docker memory limit
+    - Add resource limits to services
+    - Check for memory leaks in logs
+    - Scale horizontally with multiple instances
+  </Accordion>
+</AccordionGroup>
+
+## Production Checklist
+
+<Steps>
+  <Step title="SSL Certificates">
+    Configure valid SSL certificates for HTTPS. Self-signed certificates are not recommended.
+  </Step>
+  
+  <Step title="Strong Passwords">
+    Use strong, randomly generated passwords for database and Redis.
+  </Step>
+  
+  <Step title="Firewall Rules">
+    Configure firewall to only expose necessary ports (80, 443).
+  </Step>
+  
+  <Step title="Backups">
+    Set up automated database backups and test restore procedures.
+  </Step>
+  
+  <Step title="Monitoring">
+    Configure health checks and monitoring for all services.
+  </Step>
+  
+  <Step title="Resource Limits">
+    Set appropriate CPU and memory limits for all containers.
+  </Step>
+  
+  <Step title="Log Rotation">
+    Configure log rotation to prevent disk space issues.
+  </Step>
+  
+  <Step title="Updates">
+    Plan for regular updates and test update procedures.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/deployment/configuration">
+    Configure services using appsettings.json
+  </Card>
+  <Card title="Database Setup" icon="database" href="/deployment/database-setup">
+    Initialize and configure the database
+  </Card>
+  <Card title="SSL Certificates" icon="certificate" href="/deployment/ssl-certificates">
+    Set up SSL/TLS certificates
+  </Card>
+  <Card title="Environment Variables" icon="code" href="/deployment/environment-variables">
+    Complete environment variable reference
+  </Card>
+</CardGroup>

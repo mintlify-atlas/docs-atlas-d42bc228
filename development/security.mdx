@@ -1,0 +1,559 @@
+---
+title: Security Guidelines
+description: Security guidelines and best practices for Bitwarden Server development
+---
+
+Security is paramount in Bitwarden Server. This guide outlines security considerations for contributors and developers.
+
+## Reporting Security Vulnerabilities
+
+<Warning>
+**DO NOT** create public GitHub issues for security vulnerabilities.
+</Warning>
+
+Bitwarden has a responsible disclosure policy:
+
+### HackerOne Program
+
+Report security vulnerabilities through Bitwarden's HackerOne program:
+
+**[hackerone.com/bitwarden](https://hackerone.com/bitwarden)**
+
+Bitwarden welcomes security researchers and offers rewards for valid findings.
+
+### Private Disclosure
+
+For sensitive reports, you can:
+
+1. **Encrypt your report** using the PGP key:
+   - Key ID: `0xDE6887086F892325FEC04CC0D847525B6931381F`
+   - Available in public keyserver pools
+
+2. **Contact Bitwarden** at https://bitwarden.com/contact
+
+### What NOT to Do
+
+- **Denial of service** attacks against production systems
+- **Spamming** users or systems
+- **Social engineering** of Bitwarden staff
+- **Physical attempts** against Bitwarden property or data centers
+
+## Security Disclosure Policy
+
+From `SECURITY.md`:
+
+<Note>
+- Report vulnerabilities as soon as possible
+- Bitwarden will make every effort to quickly resolve issues
+- Provide reasonable time before public disclosure
+- Avoid privacy violations, data destruction, or service degradation
+- Only interact with accounts you own or have explicit permission to test
+</Note>
+
+## Secure Coding Practices
+
+### Never Commit Secrets
+
+**NEVER commit**:
+- API keys or tokens
+- Passwords or connection strings with credentials
+- Private keys or certificates
+- `.env` files with real secrets
+- `secrets.json` with production values
+
+**Use placeholders instead**:
+
+```json secrets.json.example
+{
+  "globalSettings": {
+    "sqlServer": {
+      "connectionString": "Server=localhost;Database=vault_dev;User Id=SA;Password=YOUR_PASSWORD_HERE"
+    },
+    "installation": {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "key": "YOUR_INSTALLATION_KEY_HERE"
+    }
+  }
+}
+```
+
+### Authentication & Authorization
+
+#### Check Authorization
+
+Always verify user permissions:
+
+```csharp
+public class CiphersController : Controller
+{
+    [HttpGet("{id}")]
+    public async Task<CipherResponseModel> Get(Guid id)
+    {
+        var cipher = await _cipherRepository.GetByIdAsync(id);
+        if (cipher == null)
+        {
+            throw new NotFoundException();
+        }
+        
+        // CRITICAL: Check if user can access this cipher
+        if (!await _cipherService.CanAccessAsync(cipher, _userService.GetUserId()))
+        {
+            throw new NotFoundException();  // Don't reveal existence
+        }
+        
+        return new CipherResponseModel(cipher);
+    }
+}
+```
+
+#### Use Policy-Based Authorization
+
+```csharp
+[Authorize(Policy = "OrganizationAdmin")]
+public class OrganizationController : Controller
+{
+    // Only admins can access
+}
+```
+
+#### Validate User Context
+
+```csharp
+public async Task<Organization> GetOrganizationAsync(Guid organizationId)
+{
+    var userId = _userService.GetProperUserId(User);
+    if (!userId.HasValue)
+    {
+        throw new UnauthorizedException();
+    }
+    
+    var orgUser = await _organizationUserRepository.GetByOrganizationAsync(
+        organizationId, userId.Value);
+    
+    if (orgUser == null || orgUser.Status != OrganizationUserStatusType.Confirmed)
+    {
+        throw new NotFoundException();
+    }
+    
+    return await _organizationRepository.GetByIdAsync(organizationId);
+}
+```
+
+### Input Validation
+
+#### Validate All Inputs
+
+```csharp
+public async Task<User> GetUserByEmailAsync(string email)
+{
+    // Validate input
+    if (string.IsNullOrWhiteSpace(email))
+    {
+        throw new BadRequestException("Email is required.");
+    }
+    
+    if (!email.Contains('@'))
+    {
+        throw new BadRequestException("Invalid email format.");
+    }
+    
+    // Normalize input
+    var normalizedEmail = email.ToLowerInvariant().Trim();
+    
+    return await _userRepository.GetByEmailAsync(normalizedEmail);
+}
+```
+
+#### Use Data Annotations
+
+```csharp
+public class RegisterRequestModel
+{
+    [Required]
+    [EmailAddress]
+    [StringLength(256)]
+    public string Email { get; set; }
+    
+    [Required]
+    [StringLength(300, MinimumLength = 8)]
+    public string MasterPasswordHash { get; set; }
+    
+    [StringLength(50)]
+    public string? MasterPasswordHint { get; set; }
+}
+```
+
+#### Prevent Injection Attacks
+
+**SQL Injection** - Use parameterized queries:
+
+```csharp
+// Good: Parameterized (Dapper)
+var user = await connection.QuerySingleOrDefaultAsync<User>(
+    "SELECT * FROM [User] WHERE Email = @Email",
+    new { Email = email });
+
+// Good: Parameterized (EF Core)
+var user = await dbContext.Users
+    .FirstOrDefaultAsync(u => u.Email == email);
+
+// Bad: String concatenation (DON'T DO THIS)
+var user = await connection.QuerySingleOrDefaultAsync<User>(
+    $"SELECT * FROM [User] WHERE Email = '{email}'");
+```
+
+### Password Handling
+
+#### Client-Side Hashing
+
+Bitwarden uses client-side password hashing:
+
+```csharp
+// The server receives an already-hashed password
+public async Task<IdentityResult> RegisterUserAsync(
+    User user,
+    string masterPasswordHash)  // Already hashed by client
+{
+    // Hash again for server storage (server-side hash)
+    user.MasterPassword = _cryptoService.HashPassword(
+        masterPasswordHash, 
+        user.Email);
+    
+    await _userRepository.CreateAsync(user);
+}
+```
+
+**Key Points**:
+- Client sends `PBKDF2(password, email)`
+- Server stores `PBKDF2(clientHash, email)` (double-hashed)
+- Server never sees the actual password
+
+#### Never Log Passwords
+
+```csharp
+// Good: Don't log sensitive data
+_logger.LogInformation("User {UserId} logged in", userId);
+
+// Bad: Logs password hash
+_logger.LogInformation("Login attempt: {Email} {Password}", 
+    email, passwordHash);  // DON'T DO THIS
+```
+
+### Cryptography
+
+#### Don't Roll Your Own Crypto
+
+Use established libraries:
+
+```csharp
+// Good: Use .NET's crypto libraries
+using var aes = Aes.Create();
+aes.Key = key;
+aes.IV = iv;
+aes.Mode = CipherMode.CBC;
+aes.Padding = PaddingMode.PKCS7;
+
+// Don't implement your own encryption algorithms
+```
+
+#### Use Strong Random Numbers
+
+```csharp
+// Good: Cryptographically secure random
+using var rng = RandomNumberGenerator.Create();
+var randomBytes = new byte[32];
+rng.GetBytes(randomBytes);
+
+// Bad: Not cryptographically secure
+var random = new Random();  // Don't use for security!
+var value = random.Next();
+```
+
+#### Proper Key Derivation
+
+```csharp
+public byte[] DeriveKey(string password, byte[] salt, int iterations)
+{
+    using var pbkdf2 = new Rfc2898DeriveBytes(
+        password,
+        salt,
+        iterations,
+        HashAlgorithmName.SHA256);
+    
+    return pbkdf2.GetBytes(32);  // 256-bit key
+}
+```
+
+### Data Protection
+
+#### Protect Sensitive Data at Rest
+
+Use ASP.NET Core Data Protection:
+
+```csharp
+public class UserRepository
+{
+    private readonly IDataProtector _dataProtector;
+    
+    public UserRepository(IDataProtectionProvider dataProtectionProvider)
+    {
+        _dataProtector = dataProtectionProvider
+            .CreateProtector(Constants.DatabaseFieldProtectorPurpose);
+    }
+    
+    public async Task<User> CreateAsync(User user)
+    {
+        // Protect sensitive fields before storage
+        user.ApiKey = _dataProtector.Protect(user.ApiKey);
+        
+        await _connection.ExecuteAsync(
+            "[dbo].[User_Create]",
+            user,
+            commandType: CommandType.StoredProcedure);
+        
+        return user;
+    }
+}
+```
+
+#### Protect Secrets in Configuration
+
+```csharp
+// Use User Secrets for local development
+// dotnet user-secrets set "ApiKey" "your-key-here"
+
+// Use Azure Key Vault or similar for production
+services.AddAzureKeyVault();
+```
+
+### API Security
+
+#### Rate Limiting
+
+```csharp
+[HttpPost("login")]
+[RateLimit(Name = "Login", Seconds = 60, MaxRequests = 5)]
+public async Task<IdentityResult> Login([FromBody] LoginRequestModel model)
+{
+    // Login logic
+}
+```
+
+#### CORS Configuration
+
+```csharp
+services.AddCors(options =>
+{
+    options.AddPolicy("AllowedOrigins", builder =>
+    {
+        builder.WithOrigins(
+            "https://vault.bitwarden.com",
+            "https://vault.bitwarden.eu")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+```
+
+#### HTTPS Enforcement
+
+```csharp
+app.UseHttpsRedirection();
+app.UseHsts();
+```
+
+### Error Handling
+
+#### Don't Leak Information
+
+```csharp
+// Good: Generic error message
+if (user == null)
+{
+    throw new NotFoundException();
+}
+
+// Bad: Reveals information
+if (user == null)
+{
+    throw new NotFoundException("User with email john@example.com not found");
+}
+```
+
+#### Log Errors Securely
+
+```csharp
+try
+{
+    await ProcessPaymentAsync(payment);
+}
+catch (Exception ex)
+{
+    // Good: Log exception details server-side
+    _logger.LogError(ex, "Payment processing failed for user {UserId}", userId);
+    
+    // Return generic error to client
+    throw new BadRequestException("Payment processing failed.");
+}
+```
+
+### Session Management
+
+#### Secure Session Tokens
+
+```csharp
+services.AddAuthentication()
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new SymmetricSecurityKey(key),
+            ClockSkew = TimeSpan.Zero  // Strict expiration
+        };
+    });
+```
+
+#### Implement Logout
+
+```csharp
+public async Task LogoutAsync(string refreshToken)
+{
+    // Revoke refresh token
+    await _refreshTokenRepository.DeleteByTokenAsync(refreshToken);
+    
+    // Update security stamp to invalidate existing tokens
+    await _userService.RefreshSecurityStampAsync(user);
+}
+```
+
+## Security Testing
+
+### Write Security Tests
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task GetCipher_UnauthorizedUser_ThrowsNotFoundException(
+    SutProvider<CipherService> sutProvider,
+    Cipher cipher,
+    Guid unauthorizedUserId)
+{
+    // Arrange
+    cipher.UserId = Guid.NewGuid();  // Different user
+    sutProvider.GetDependency<ICipherRepository>()
+        .GetByIdAsync(cipher.Id)
+        .Returns(cipher);
+    
+    // Act & Assert
+    await Assert.ThrowsAsync<NotFoundException>(
+        () => sutProvider.Sut.GetAsync(cipher.Id, unauthorizedUserId));
+}
+```
+
+### Test Authorization
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task UpdateOrganization_NonAdmin_ThrowsUnauthorizedException(
+    SutProvider<OrganizationService> sutProvider,
+    Organization org,
+    OrganizationUser orgUser)
+{
+    // Arrange: User is not admin
+    orgUser.Type = OrganizationUserType.User;
+    
+    // Act & Assert
+    await Assert.ThrowsAsync<UnauthorizedException>(
+        () => sutProvider.Sut.UpdateAsync(org, orgUser));
+}
+```
+
+## Dependency Security
+
+### Keep Dependencies Updated
+
+```bash
+# Check for outdated packages
+dotnet list package --outdated
+
+# Check for vulnerable packages
+dotnet list package --vulnerable
+```
+
+### Review Dependencies
+
+Before adding new dependencies:
+
+1. Check package popularity and maintenance
+2. Review recent security advisories
+3. Verify package signatures
+4. Review license compatibility
+
+## Production Security
+
+### Environment Variables
+
+Never hardcode production values:
+
+```csharp
+// Good: Read from configuration
+var apiKey = configuration["ExternalApi:ApiKey"];
+
+// Bad: Hardcoded
+var apiKey = "sk_live_abc123def456";  // DON'T DO THIS
+```
+
+### Secrets Management
+
+Use proper secrets management:
+
+- **Development**: User Secrets, `.env` files (not committed)
+- **Production**: Azure Key Vault, AWS Secrets Manager, etc.
+
+### Security Headers
+
+```csharp
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "SAMEORIGIN");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Add("Referrer-Policy", "strict-origin-when-cross-origin");
+    await next();
+});
+```
+
+## Security Checklist
+
+Before submitting security-sensitive code:
+
+- [ ] All user inputs are validated
+- [ ] Authentication checks are in place
+- [ ] Authorization is verified
+- [ ] No secrets in code or commits
+- [ ] Parameterized queries used (no SQL injection)
+- [ ] Sensitive data is encrypted
+- [ ] Error messages don't leak information
+- [ ] Security tests added
+- [ ] Dependencies are up to date
+- [ ] Code reviewed for security issues
+
+## Resources
+
+- **HackerOne**: https://hackerone.com/bitwarden
+- **Security Policy**: `SECURITY.md` in repository
+- **OWASP Top 10**: https://owasp.org/www-project-top-ten/
+- **Security Headers**: https://securityheaders.com/
+
+## See Also
+
+- [Contribution Guide](/development/contribution-guide) - How to contribute
+- [Testing Guide](/development/testing) - Security testing
+- [Code Style](/development/code-style) - Coding standards

@@ -1,0 +1,410 @@
+---
+title: "Organization Policies API"
+description: "Enforce security policies across your organization"
+---
+
+## Overview
+
+Policies allow organizations to enforce security requirements and business rules for all members.
+
+<Info>
+Policies are only available on Teams and Enterprise plans.
+</Info>
+
+## Get Policy
+
+Retrieve a specific policy configuration.
+
+```bash
+GET /organizations/{orgId}/policies/{type}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="type" type="number" required>
+  Policy type (see Policy Types below)
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Policy unique identifier
+</ResponseField>
+
+<ResponseField name="organizationId" type="string" required>
+  Parent organization ID
+</ResponseField>
+
+<ResponseField name="type" type="number" required>
+  Policy type
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean" required>
+  Whether policy is active
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Policy-specific configuration
+</ResponseField>
+
+---
+
+## List All Policies
+
+Retrieve all policies for an organization.
+
+```bash
+GET /organizations/{orgId}/policies
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+---
+
+## Get Policies by Token
+
+Retrieve enabled policies using an invitation token (for invited users).
+
+```bash
+GET /organizations/{orgId}/policies/token?email={email}&token={token}&organizationUserId={organizationUserId}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField query="email" type="string" required>
+  User's email address
+</ParamField>
+
+<ParamField query="token" type="string" required>
+  Invitation token
+</ParamField>
+
+<ParamField query="organizationUserId" type="string" required>
+  Organization user ID
+</ParamField>
+
+<Note>
+This endpoint does not require authentication - the token serves as verification.
+</Note>
+
+---
+
+## Get Master Password Policy
+
+Retrieve master password requirements for an organization.
+
+```bash
+GET /organizations/{orgId}/policies/master-password
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+---
+
+## Update Policy
+
+Enable or update a policy configuration.
+
+```bash
+PUT /organizations/{orgId}/policies/{type}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="type" type="number" required>
+  Policy type
+</ParamField>
+
+### Request Body
+
+<ParamField body="enabled" type="boolean" required>
+  Enable or disable the policy
+</ParamField>
+
+<ParamField body="data" type="object">
+  Policy-specific configuration (varies by type)
+</ParamField>
+
+---
+
+## Policy Types
+
+### Two-Factor Authentication (0)
+
+Require all users to enable two-factor authentication.
+
+```json
+{
+  "type": 0,
+  "enabled": true,
+  "data": null
+}
+```
+
+### Master Password (1)
+
+Enforce master password requirements.
+
+```json
+{
+  "type": 1,
+  "enabled": true,
+  "data": {
+    "minComplexity": 3,
+    "minLength": 12,
+    "requireUpper": true,
+    "requireLower": true,
+    "requireNumbers": true,
+    "requireSpecial": true,
+    "enforceOnLogin": false
+  }
+}
+```
+
+**Data Fields:**
+- `minComplexity` (0-4): Minimum complexity score
+- `minLength`: Minimum password length
+- `requireUpper`: Require uppercase letters
+- `requireLower`: Require lowercase letters
+- `requireNumbers`: Require numbers
+- `requireSpecial`: Require special characters
+- `enforceOnLogin`: Force password update on next login
+
+### Password Generator (2)
+
+Enforce minimum requirements for generated passwords.
+
+```json
+{
+  "type": 2,
+  "enabled": true,
+  "data": {
+    "defaultType": "password",
+    "minLength": 14,
+    "useUpper": true,
+    "useLower": true,
+    "useNumbers": true,
+    "useSpecial": true,
+    "minNumbers": 1,
+    "minSpecial": 1,
+    "minNumberWords": 3,
+    "capitalize": true,
+    "includeNumber": true
+  }
+}
+```
+
+### Single Organization (3)
+
+Prevent users from being in multiple organizations.
+
+```json
+{
+  "type": 3,
+  "enabled": true,
+  "data": null
+}
+```
+
+### Require SSO (4)
+
+Require SSO authentication for all members.
+
+```json
+{
+  "type": 4,
+  "enabled": true,
+  "data": null
+}
+```
+
+### Personal Ownership (5)
+
+Require all items to be owned by the organization (no personal items).
+
+```json
+{
+  "type": 5,
+  "enabled": true,
+  "data": null
+}
+```
+
+### Disable Send (6)
+
+Disable Bitwarden Send for organization members.
+
+```json
+{
+  "type": 6,
+  "enabled": true,
+  "data": {
+    "disableHideEmail": false
+  }
+}
+```
+
+### Send Options (7)
+
+Control Send feature availability.
+
+```json
+{
+  "type": 7,
+  "enabled": true,
+  "data": {
+    "disableHideEmail": true
+  }
+}
+```
+
+### Reset Password (8)
+
+Allow admins to reset user passwords.
+
+```json
+{
+  "type": 8,
+  "enabled": true,
+  "data": {
+    "autoEnrollEnabled": false
+  }
+}
+```
+
+**Data Fields:**
+- `autoEnrollEnabled`: Automatically enroll new users in password reset
+
+### Maximum Vault Timeout (9)
+
+Enforce maximum vault timeout period.
+
+```json
+{
+  "type": 9,
+  "enabled": true,
+  "data": {
+    "minutes": 60
+  }
+}
+```
+
+### Disable Personal Vault Export (10)
+
+Prevent users from exporting their personal vault.
+
+```json
+{
+  "type": 10,
+  "enabled": true,
+  "data": null
+}
+```
+
+### Activate Autofill (11)
+
+Require browser extension autofill to be enabled.
+
+```json
+{
+  "type": 11,
+  "enabled": true,
+  "data": {
+    "useTotp": false,
+    "useAutofillOnPageLoad": false
+  }
+}
+```
+
+---
+
+## Policy Dependencies
+
+Some policies require other policies to be enabled:
+
+| Policy | Required Policies |
+|--------|------------------|
+| Reset Password | Single Organization |
+| Require SSO | Single Organization |
+
+---
+
+## Policy Enforcement
+
+### When Policies Apply
+
+1. **Immediately**: For existing users when policy is enabled
+2. **On Login**: Some policies enforce requirements at next login
+3. **On Invitation**: New users see policy requirements before accepting
+
+### User Impact
+
+When a policy is enabled:
+- **Existing users** may need to comply (e.g., enable 2FA)
+- **Non-compliant users** may be locked out until they comply
+- **New users** must meet requirements to join
+
+---
+
+## Best Practices
+
+### Security Policies
+
+1. **Enable Two-Factor Authentication** - Require all users to use 2FA
+2. **Set Master Password Requirements** - Enforce strong passwords
+3. **Use Single Organization** - Prevent data leakage to other orgs
+4. **Enable SSO** - Centralize authentication control
+
+### Compliance Policies
+
+1. **Personal Ownership** - Ensure all sensitive data is org-owned
+2. **Disable Send** - Prevent data sharing via Send if not allowed
+3. **Vault Export** - Disable exports to prevent data exfiltration
+4. **Vault Timeout** - Ensure vaults lock after inactivity
+
+### Rollout Strategy
+
+```
+1. Test policies in a pilot group first
+2. Communicate policy changes to users
+3. Provide time for compliance (grace period)
+4. Enable policy enforcement
+5. Monitor compliance and user issues
+```
+
+---
+
+## Policy Conflicts
+
+When a user is in multiple organizations with conflicting policies:
+
+- **Strictest policy wins** - The most restrictive requirement applies
+- **Example**: If Org A requires 2FA and Org B doesn't, user must enable 2FA
+
+---
+
+## Checking Policy Status
+
+```javascript
+// Check if policy is enabled
+const response = await fetch(
+  `/organizations/${orgId}/policies/${policyType}`,
+  { headers: { 'Authorization': `Bearer ${token}` }}
+);
+
+const policy = await response.json();
+if (policy.enabled) {
+  console.log('Policy is active');
+  console.log('Configuration:', policy.data);
+}
+```

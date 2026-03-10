@@ -1,0 +1,692 @@
+---
+title: Compliance and Audit Logging
+description: Compliance considerations, audit logging, and event tracking for Bitwarden Server
+---
+
+Bitwarden Server provides comprehensive audit logging and event tracking capabilities to support compliance requirements and security monitoring. This guide covers event logging, audit trails, and compliance considerations.
+
+## Event Logging System
+
+### Event Architecture
+
+Bitwarden implements a distributed event logging system:
+
+**Core Components:**
+- **Event Service:** Captures and emits events (`src/Core/Dirt/Services/Implementations/EventService.cs`)
+- **Event Writers:** Persist events to storage
+- **Event Publishers:** Send events to message buses
+- **Event Listeners:** Process events for integrations
+
+**Event Flow:**
+```
+Application → EventService → EventWriteService → Storage
+                          └→ EventPublisher → Message Bus → Integrations
+```
+
+### Event Storage Options
+
+#### Azure Queue Storage
+
+```json
+{
+  "globalSettings": {
+    "events": {
+      "connectionString": "DefaultEndpointsProtocol=https;AccountName=storage;AccountKey=***"
+    }
+  }
+}
+```
+
+**Implementation:** `src/Core/Dirt/Services/Implementations/AzureQueueEventWriteService.cs`
+
+#### Azure Service Bus
+
+```json
+{
+  "globalSettings": {
+    "eventLogging": {
+      "azureServiceBus": {
+        "connectionString": "Endpoint=sb://namespace.servicebus.windows.net/;SharedAccessKeyName=***;SharedAccessKey=***",
+        "eventTopicName": "events",
+        "integrationTopicName": "integrations",
+        "defaultPrefetchCount": 10,
+        "defaultMaxConcurrentCalls": 5
+      }
+    }
+  }
+}
+```
+
+**Features:**
+- Durable message storage
+- Dead-letter queue for failed processing
+- Concurrent message processing
+- Automatic retry with exponential backoff
+
+**Configuration:** `src/Core/Settings/GlobalSettings.cs:307`
+
+#### RabbitMQ
+
+```json
+{
+  "globalSettings": {
+    "eventLogging": {
+      "rabbitMq": {
+        "hostName": "rabbitmq.example.com",
+        "username": "bitwarden",
+        "password": "SecurePassword123",
+        "eventExchangeName": "bitwarden.events",
+        "integrationExchangeName": "bitwarden.integrations",
+        "useDelayPlugin": true,
+        "retryTiming": [5000, 10000, 30000, 60000, 300000]
+      }
+    }
+  }
+}
+```
+
+**Implementation:** `src/Core/Dirt/Services/Implementations/RabbitMqService.cs:26`
+
+#### Database Storage
+
+```json
+{
+  "globalSettings": {
+    "eventLogging": {
+      "persistToDatabase": true
+    }
+  }
+}
+```
+
+**Repository:** `src/Core/Dirt/Repositories/IEventRepository.cs`
+
+### Event Types
+
+Bitwarden tracks comprehensive event types:
+
+#### User Events (1000-1999)
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| User_LoggedIn | 1000 | User authentication successful |
+| User_ChangedPassword | 1001 | Master password changed |
+| User_Updated2fa | 1002 | Two-factor settings modified |
+| User_Disabled2fa | 1003 | Two-factor authentication disabled |
+| User_Recovered2fa | 1004 | Two-factor recovery used |
+| User_FailedLogIn | 1005 | Failed authentication attempt |
+| User_ClientExportedVault | 1006 | Vault exported by client |
+
+#### Cipher Events (2000-2999)
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| Cipher_Created | 2000 | New vault item created |
+| Cipher_Updated | 2001 | Vault item modified |
+| Cipher_Deleted | 2002 | Vault item deleted |
+| Cipher_AttachmentCreated | 2003 | Attachment uploaded |
+| Cipher_AttachmentDeleted | 2004 | Attachment removed |
+| Cipher_Shared | 2005 | Item shared with organization |
+| Cipher_ClientViewed | 2006 | Item viewed in client |
+| Cipher_ClientCopiedPassword | 2007 | Password copied to clipboard |
+| Cipher_ClientCopiedHiddenField | 2008 | Hidden field copied |
+| Cipher_ClientAutofilled | 2009 | Item used for autofill |
+
+#### Collection Events (3000-3999)
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| Collection_Created | 3000 | Collection created |
+| Collection_Updated | 3001 | Collection modified |
+| Collection_Deleted | 3002 | Collection deleted |
+
+#### Organization Events (4000-4999)
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| OrganizationUser_Invited | 4000 | User invited to organization |
+| OrganizationUser_Confirmed | 4001 | User invitation accepted |
+| OrganizationUser_Updated | 4002 | User role/permissions changed |
+| OrganizationUser_Removed | 4003 | User removed from organization |
+| OrganizationUser_UpdatedGroups | 4004 | User group membership changed |
+| Organization_Updated | 4005 | Organization settings modified |
+| Organization_PurgedVault | 4006 | Organization vault purged |
+| Organization_ClientExportedVault | 4007 | Organization vault exported |
+
+#### Security Task Events (5000-5999)
+
+| Event Type | Code | Description |
+|------------|------|-------------|
+| SecurityTask_Created | 5000 | Security task created |
+| SecurityTask_Updated | 5001 | Security task status changed |
+| SecurityTask_Deleted | 5002 | Security task deleted |
+
+### Event Data Structure
+
+**Base Event Interface:**
+```csharp
+public interface IEvent
+{
+    Guid Id { get; set; }
+    EventType Type { get; set; }
+    Guid? UserId { get; set; }
+    Guid? OrganizationId { get; set; }
+    Guid? CipherId { get; set; }
+    Guid? CollectionId { get; set; }
+    Guid? GroupId { get; set; }
+    Guid? PolicyId { get; set; }
+    Guid? OrganizationUserId { get; set; }
+    Guid? ActingUserId { get; set; }
+    DateTime Date { get; set; }
+    string DeviceType { get; set; }
+    string IpAddress { get; set; }
+}
+```
+
+**Extended Event Data:**
+- Service account operations
+- Provider operations  
+- Secret manager events
+- Device trust events
+
+## Audit Trail Implementation
+
+### Querying Audit Logs
+
+**User Activity:**
+```sql
+-- Recent user authentication events
+SELECT 
+    e.Date,
+    e.Type,
+    u.Email,
+    e.IpAddress,
+    e.DeviceType
+FROM [dbo].[Event] e
+JOIN [dbo].[User] u ON e.UserId = u.Id
+WHERE e.Type IN (1000, 1005)  -- LoggedIn, FailedLogIn
+AND e.Date >= DATEADD(day, -30, GETDATE())
+ORDER BY e.Date DESC;
+```
+
+**Organization Changes:**
+```sql
+-- Organization user management events
+SELECT 
+    e.Date,
+    e.Type,
+    u.Email AS Actor,
+    ou.Email AS TargetUser,
+    o.Name AS Organization
+FROM [dbo].[Event] e
+JOIN [dbo].[Organization] o ON e.OrganizationId = o.Id
+JOIN [dbo].[User] u ON e.ActingUserId = u.Id
+LEFT JOIN [dbo].[OrganizationUser] ou ON e.OrganizationUserId = ou.Id
+WHERE e.Type BETWEEN 4000 AND 4999
+AND e.Date >= DATEADD(day, -90, GETDATE())
+ORDER BY e.Date DESC;
+```
+
+**Sensitive Data Access:**
+```sql
+-- Track password copies and autofill
+SELECT 
+    e.Date,
+    e.Type,
+    u.Email,
+    c.Name AS ItemName,
+    e.IpAddress
+FROM [dbo].[Event] e
+JOIN [dbo].[User] u ON e.UserId = u.Id
+JOIN [dbo].[Cipher] c ON e.CipherId = c.Id
+WHERE e.Type IN (2007, 2009)  -- CopiedPassword, Autofilled
+AND e.Date >= DATEADD(day, -7, GETDATE())
+ORDER BY e.Date DESC;
+```
+
+### Event Export
+
+**Export to CSV:**
+```sql
+-- Export compliance audit log
+SELECT 
+    CONVERT(varchar, e.Date, 120) AS Timestamp,
+    et.Name AS EventType,
+    u.Email AS User,
+    e.IpAddress,
+    e.DeviceType,
+    o.Name AS Organization,
+    c.Name AS Item
+FROM [dbo].[Event] e
+JOIN [dbo].[EventType] et ON e.Type = et.Id
+LEFT JOIN [dbo].[User] u ON e.UserId = u.Id
+LEFT JOIN [dbo].[Organization] o ON e.OrganizationId = o.Id
+LEFT JOIN [dbo].[Cipher] c ON e.CipherId = c.Id
+WHERE e.Date BETWEEN '2026-01-01' AND '2026-12-31'
+ORDER BY e.Date
+FOR CSV;
+```
+
+**Export to JSON:**
+```csharp
+// API endpoint for event export
+public async Task<IEnumerable<EventResponseModel>> GetEvents(
+    DateTime start, DateTime end)
+{
+    var events = await _eventRepository.GetManyByOrganizationAsync(
+        organizationId, start, end);
+    return events.Select(e => new EventResponseModel(e));
+}
+```
+
+## Compliance Frameworks
+
+### GDPR Compliance
+
+#### Right to Access
+
+```sql
+-- Export all user data (GDPR Article 15)
+SELECT 
+    'User Profile' AS DataType,
+    Email, Name, CreationDate
+FROM [dbo].[User]
+WHERE Id = @UserId
+
+UNION ALL
+
+SELECT 
+    'Vault Items' AS DataType,
+    Name, Type, CreationDate
+FROM [dbo].[Cipher]
+WHERE UserId = @UserId
+
+UNION ALL
+
+SELECT 
+    'Events' AS DataType,
+    Type, Date, IpAddress
+FROM [dbo].[Event]
+WHERE UserId = @UserId;
+```
+
+#### Right to Erasure
+
+```sql
+-- Delete user data (GDPR Article 17)
+BEGIN TRANSACTION;
+
+-- Delete user ciphers
+DELETE FROM [dbo].[Cipher] WHERE UserId = @UserId;
+
+-- Delete user events
+DELETE FROM [dbo].[Event] WHERE UserId = @UserId;
+
+-- Delete user account
+DELETE FROM [dbo].[User] WHERE Id = @UserId;
+
+COMMIT TRANSACTION;
+```
+
+#### Data Processing Records
+
+Maintain records of:
+- Data collection purposes
+- Data retention periods
+- Data processors and sub-processors
+- Security measures implemented
+- Data transfers outside EU
+
+### HIPAA Compliance
+
+#### Access Controls
+
+**Unique User Identification:**
+```sql
+-- Verify all users have unique identifiers
+SELECT Email, COUNT(*) 
+FROM [dbo].[User]
+GROUP BY Email
+HAVING COUNT(*) > 1;
+```
+
+**Emergency Access Procedure:**
+```sql
+-- Track emergency access usage
+SELECT 
+    ea.Email AS Grantee,
+    u.Email AS Grantor,
+    ea.Status,
+    ea.LastNotificationDate,
+    ea.RecoveryInitiatedDate
+FROM [dbo].[EmergencyAccess] ea
+JOIN [dbo].[User] u ON ea.GrantorId = u.Id
+WHERE ea.Status = 2;  -- RecoveryInitiated
+```
+
+#### Audit Controls
+
+**Audit Log Review:**
+```sql
+-- Detect unusual access patterns (HIPAA 164.312(b))
+SELECT 
+    u.Email,
+    COUNT(*) AS AccessCount,
+    COUNT(DISTINCT e.CipherId) AS UniqueItemsAccessed
+FROM [dbo].[Event] e
+JOIN [dbo].[User] u ON e.UserId = u.Id
+WHERE e.Type IN (2006, 2007, 2009)  -- Viewed, Copied, Autofilled
+AND e.Date >= DATEADD(hour, -1, GETDATE())
+GROUP BY u.Email
+HAVING COUNT(*) > 100;  -- Threshold for suspicious activity
+```
+
+**Integrity Controls:**
+```sql
+-- Verify data integrity
+DBCC CHECKDB (vault) WITH NO_INFOMSGS;
+
+-- Check for unauthorized modifications
+SELECT 
+    c.Id,
+    c.Name,
+    c.RevisionDate,
+    e.Date AS LastEventDate
+FROM [dbo].[Cipher] c
+LEFT JOIN [dbo].[Event] e ON c.Id = e.CipherId 
+    AND e.Type = 2001  -- Cipher_Updated
+    AND e.Date = (
+        SELECT MAX(Date) FROM [dbo].[Event] 
+        WHERE CipherId = c.Id AND Type = 2001
+    )
+WHERE c.RevisionDate > ISNULL(e.Date, c.CreationDate);
+```
+
+### SOC 2 Compliance
+
+#### Logical Access (CC6.1)
+
+**Access Review:**
+```sql
+-- Quarterly access review
+SELECT 
+    o.Name AS Organization,
+    u.Email,
+    ou.Type AS Role,
+    ou.Status,
+    ou.AccessAll,
+    ou.CreationDate,
+    DATEDIFF(day, u.LastPasswordChangeDate, GETDATE()) AS DaysSincePasswordChange
+FROM [dbo].[OrganizationUser] ou
+JOIN [dbo].[Organization] o ON ou.OrganizationId = o.Id
+JOIN [dbo].[User] u ON ou.UserId = u.Id
+WHERE ou.Status = 2  -- Confirmed
+ORDER BY o.Name, ou.Type;
+```
+
+**Privileged Access Monitoring:**
+```sql
+-- Track administrative actions
+SELECT 
+    e.Date,
+    u.Email,
+    e.Type,
+    o.Name AS Organization
+FROM [dbo].[Event] e
+JOIN [dbo].[User] u ON e.ActingUserId = u.Id
+JOIN [dbo].[Organization] o ON e.OrganizationId = o.Id
+WHERE e.Type IN (
+    4002,  -- OrganizationUser_Updated (role changes)
+    4006,  -- Organization_PurgedVault
+    4005   -- Organization_Updated
+)
+AND e.Date >= DATEADD(day, -30, GETDATE())
+ORDER BY e.Date DESC;
+```
+
+#### System Monitoring (CC7.2)
+
+**Availability Metrics:**
+```sql
+-- Service availability tracking
+SELECT 
+    CAST(Date AS DATE) AS Day,
+    COUNT(*) AS Requests,
+    COUNT(CASE WHEN Type = 1000 THEN 1 END) AS SuccessfulLogins,
+    COUNT(CASE WHEN Type = 1005 THEN 1 END) AS FailedLogins
+FROM [dbo].[Event]
+WHERE Type IN (1000, 1005)
+AND Date >= DATEADD(day, -30, GETDATE())
+GROUP BY CAST(Date AS DATE)
+ORDER BY Day;
+```
+
+### PCI DSS (If Applicable)
+
+<Warning>
+**Important:** Storing payment card data in Bitwarden requires careful consideration. Ensure proper controls are in place if storing PANs.
+</Warning>
+
+**Requirements:**
+- Network segmentation (Req 1)
+- Encryption of cardholder data (Req 3)
+- Access controls (Req 7)
+- Monitoring and logging (Req 10)
+- Regular security testing (Req 11)
+
+## Event Integration
+
+### SIEM Integration
+
+#### Splunk Integration
+
+**HTTP Event Collector:**
+```json
+{
+  "eventLogging": {
+    "splunk": {
+      "hecEndpoint": "https://splunk.example.com:8088/services/collector",
+      "hecToken": "ABC123-DEF456-GHI789",
+      "index": "bitwarden",
+      "sourcetype": "bitwarden:events"
+    }
+  }
+}
+```
+
+**Listener Configuration:** `src/Core/Dirt/Models/Data/EventIntegrations/HecListenerConfiguration.cs`
+
+#### Datadog Integration
+
+```json
+{
+  "eventLogging": {
+    "datadog": {
+      "apiKey": "your-api-key",
+      "site": "datadoghq.com",
+      "service": "bitwarden",
+      "source": "bitwarden-events"
+    }
+  }
+}
+```
+
+### Webhook Integration
+
+**Configuration:**
+```json
+{
+  "eventLogging": {
+    "webhook": {
+      "enabled": true,
+      "url": "https://webhook.example.com/bitwarden/events",
+      "secret": "webhook-signing-secret",
+      "events": [1000, 1005, 2000, 2001, 4000, 4003]
+    }
+  }
+}
+```
+
+**Webhook Payload:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "type": 1000,
+  "typeName": "User_LoggedIn",
+  "userId": "user-id",
+  "date": "2026-03-10T14:30:00Z",
+  "ipAddress": "192.168.1.100",
+  "deviceType": "ChromeBrowser"
+}
+```
+
+### Slack/Teams Integration
+
+**Alert on Critical Events:**
+
+```json
+{
+  "eventLogging": {
+    "slack": {
+      "webhookUrl": "https://hooks.slack.com/services/T00/B00/XXX",
+      "channel": "#bitwarden-alerts",
+      "events": [4006, 4003, 1005]
+    }
+  }
+}
+```
+
+**Implementation:** `src/Core/Dirt/Services/Implementations/SlackService.cs`
+
+## Retention Policies
+
+### Event Retention
+
+**Default Retention:**
+```sql
+-- Configure retention period (90 days recommended minimum)
+DECLARE @RetentionDays INT = 90;
+
+DELETE FROM [dbo].[Event]
+WHERE Date < DATEADD(day, -@RetentionDays, GETDATE());
+```
+
+**Compliance Requirements:**
+
+| Framework | Minimum Retention |
+|-----------|------------------|
+| GDPR | No specific requirement (purpose-based) |
+| HIPAA | 6 years |
+| SOC 2 | 1 year (typically) |
+| PCI DSS | 1 year online, 3 months online |
+
+### Automated Archival
+
+```sql
+-- Archive old events to separate table
+BEGIN TRANSACTION;
+
+INSERT INTO [dbo].[EventArchive]
+SELECT * FROM [dbo].[Event]
+WHERE Date < DATEADD(year, -1, GETDATE());
+
+DELETE FROM [dbo].[Event]
+WHERE Date < DATEADD(year, -1, GETDATE());
+
+COMMIT TRANSACTION;
+```
+
+**Schedule:**
+```bash
+# Monthly archival cron job
+0 2 1 * * /usr/local/bin/archive-events.sh
+```
+
+## Compliance Reporting
+
+### Automated Reports
+
+**Access Report:**
+```sql
+CREATE PROCEDURE GenerateAccessReport
+    @StartDate DATETIME,
+    @EndDate DATETIME
+AS
+BEGIN
+    SELECT 
+        u.Email,
+        COUNT(DISTINCT CAST(e.Date AS DATE)) AS DaysActive,
+        COUNT(*) AS TotalEvents,
+        COUNT(CASE WHEN e.Type = 1000 THEN 1 END) AS Logins,
+        MIN(e.Date) AS FirstActivity,
+        MAX(e.Date) AS LastActivity
+    FROM [dbo].[Event] e
+    JOIN [dbo].[User] u ON e.UserId = u.Id
+    WHERE e.Date BETWEEN @StartDate AND @EndDate
+    GROUP BY u.Email
+    ORDER BY TotalEvents DESC;
+END;
+```
+
+**Security Incident Report:**
+```sql
+CREATE PROCEDURE GenerateSecurityIncidentReport
+    @StartDate DATETIME,
+    @EndDate DATETIME
+AS
+BEGIN
+    -- Failed login attempts
+    SELECT 
+        'Failed Logins' AS IncidentType,
+        u.Email,
+        COUNT(*) AS Occurrences,
+        MAX(e.Date) AS LastOccurrence
+    FROM [dbo].[Event] e
+    LEFT JOIN [dbo].[User] u ON e.UserId = u.Id
+    WHERE e.Type = 1005
+    AND e.Date BETWEEN @StartDate AND @EndDate
+    GROUP BY u.Email
+    HAVING COUNT(*) > 5
+    
+    UNION ALL
+    
+    -- Bulk data exports
+    SELECT 
+        'Vault Export' AS IncidentType,
+        u.Email,
+        COUNT(*) AS Occurrences,
+        MAX(e.Date) AS LastOccurrence
+    FROM [dbo].[Event] e
+    JOIN [dbo].[User] u ON e.UserId = u.Id
+    WHERE e.Type IN (1006, 4007)
+    AND e.Date BETWEEN @StartDate AND @EndDate
+    GROUP BY u.Email;
+END;
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Comprehensive Logging" icon="list">
+    Enable all event types relevant to your compliance requirements. Don't selectively disable events.
+  </Card>
+  
+  <Card title="Protect Audit Logs" icon="shield">
+    Implement write-once storage or secure log forwarding to prevent tampering with audit trails.
+  </Card>
+  
+  <Card title="Regular Reviews" icon="calendar">
+    Schedule quarterly access reviews and monthly audit log analysis. Automate where possible.
+  </Card>
+  
+  <Card title="Incident Response" icon="bell">
+    Configure real-time alerts for critical security events. Document response procedures.
+  </Card>
+</CardGroup>
+
+## Related Resources
+
+- [Security Best Practices](/operations/security-best-practices)
+- [Encryption Implementation](/operations/encryption)
+- [Logging Configuration](/operations/logging)
+- [Metrics and Telemetry](/operations/metrics)

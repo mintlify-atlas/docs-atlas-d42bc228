@@ -1,0 +1,547 @@
+---
+title: "Ciphers API"
+description: "Manage vault items including passwords, notes, cards, and identities"
+---
+
+## Overview
+
+Ciphers are the core vault items in Bitwarden. They can represent:
+- **Login** credentials (username/password)
+- **Secure Notes**
+- **Card** information (credit/debit cards)
+- **Identity** information (personal details)
+- **SSH Keys**
+
+## Get Cipher
+
+Retrieve a specific cipher by ID.
+
+```bash
+GET /ciphers/{id}
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Cipher unique identifier
+</ResponseField>
+
+<ResponseField name="type" type="number" required>
+  Cipher type (1=Login, 2=SecureNote, 3=Card, 4=Identity, 5=SSHKey)
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Encrypted cipher name
+</ResponseField>
+
+<ResponseField name="notes" type="string">
+  Encrypted notes
+</ResponseField>
+
+<ResponseField name="login" type="object">
+  Login credentials (for type=1)
+</ResponseField>
+
+<ResponseField name="card" type="object">
+  Card information (for type=3)
+</ResponseField>
+
+<ResponseField name="identity" type="object">
+  Identity information (for type=4)
+</ResponseField>
+
+<ResponseField name="favorite" type="boolean">
+  Whether cipher is marked as favorite
+</ResponseField>
+
+<ResponseField name="organizationId" type="string">
+  Organization ID if cipher is shared
+</ResponseField>
+
+<ResponseField name="collectionIds" type="array">
+  Collections containing this cipher
+</ResponseField>
+
+---
+
+## Get Cipher Details
+
+Retrieve detailed cipher information including collection associations.
+
+```bash
+GET /ciphers/{id}/details
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+---
+
+## Get Cipher as Admin
+
+Retrieve cipher details with admin permissions.
+
+```bash
+GET /ciphers/{id}/admin
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+<Info>
+This endpoint requires admin or manager permissions for the organization.
+</Info>
+
+---
+
+## List All Ciphers
+
+Retrieve all ciphers accessible to the authenticated user.
+
+```bash
+GET /ciphers
+```
+
+### Response
+
+Returns a list of all ciphers including personal and organization ciphers.
+
+---
+
+## List Organization Ciphers
+
+Retrieve all ciphers for a specific organization.
+
+```bash
+GET /ciphers/organization-details?organizationId={organizationId}&includeMemberItems={includeMemberItems}
+```
+
+<ParamField query="organizationId" type="string" required>
+  The organization ID
+</ParamField>
+
+<ParamField query="includeMemberItems" type="boolean" default="false">
+  Include items in user's default collections
+</ParamField>
+
+---
+
+## List Assigned Organization Ciphers
+
+Retrieve organization ciphers assigned to the current user.
+
+```bash
+GET /ciphers/organization-details/assigned?organizationId={organizationId}
+```
+
+<ParamField query="organizationId" type="string" required>
+  The organization ID
+</ParamField>
+
+---
+
+## Create Cipher
+
+Create a new cipher.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/ciphers" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": 1,
+    "name": "2.encrypted_name",
+    "notes": "2.encrypted_notes",
+    "login": {
+      "username": "2.encrypted_username",
+      "password": "2.encrypted_password",
+      "uris": [
+        {"uri": "2.encrypted_uri"}
+      ]
+    },
+    "folderId": null,
+    "favorite": false
+  }'
+```
+
+```javascript JavaScript
+const cipher = await fetch('https://api.bitwarden.com/ciphers', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    type: 1,
+    name: '2.encrypted_name',
+    login: {
+      username: '2.encrypted_username',
+      password: '2.encrypted_password'
+    }
+  })
+});
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="type" type="number" required>
+  Cipher type (1=Login, 2=SecureNote, 3=Card, 4=Identity, 5=SSHKey)
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Encrypted cipher name
+</ParamField>
+
+<ParamField body="notes" type="string">
+  Encrypted notes
+</ParamField>
+
+<ParamField body="login" type="object">
+  Login data (required for type=1)
+</ParamField>
+
+<ParamField body="secureNote" type="object">
+  Secure note data (required for type=2)
+</ParamField>
+
+<ParamField body="card" type="object">
+  Card data (required for type=3)
+</ParamField>
+
+<ParamField body="identity" type="object">
+  Identity data (required for type=4)
+</ParamField>
+
+<ParamField body="folderId" type="string">
+  Folder ID to place cipher in
+</ParamField>
+
+<ParamField body="organizationId" type="string">
+  Organization ID if creating organization cipher
+</ParamField>
+
+<ParamField body="favorite" type="boolean" default="false">
+  Mark as favorite
+</ParamField>
+
+<ParamField body="lastKnownRevisionDate" type="string">
+  Last known revision date for conflict detection
+</ParamField>
+
+---
+
+## Create Cipher with Collections
+
+Create a cipher and assign it to collections in one operation.
+
+```bash
+POST /ciphers/create
+```
+
+<ParamField body="cipher" type="object" required>
+  Cipher object (same as Create Cipher)
+</ParamField>
+
+<ParamField body="collectionIds" type="array" required>
+  Array of collection IDs to assign cipher to
+</ParamField>
+
+---
+
+## Update Cipher
+
+Update an existing cipher.
+
+```bash
+PUT /ciphers/{id}
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+### Request Body
+
+Same as Create Cipher, all fields should be provided.
+
+---
+
+## Partial Update Cipher
+
+Update only specific fields of a cipher (folder and favorite status).
+
+```bash
+PUT /ciphers/{id}/partial
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+<ParamField body="folderId" type="string">
+  New folder ID (null for no folder)
+</ParamField>
+
+<ParamField body="favorite" type="boolean">
+  Favorite status
+</ParamField>
+
+---
+
+## Share Cipher
+
+Share a personal cipher with an organization.
+
+```bash
+PUT /ciphers/{id}/share
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+<ParamField body="cipher" type="object" required>
+  Updated cipher object with organizationId
+</ParamField>
+
+<ParamField body="collectionIds" type="array" required>
+  Collections to share cipher with
+</ParamField>
+
+---
+
+## Update Cipher Collections
+
+Update which collections a cipher belongs to.
+
+```bash
+PUT /ciphers/{id}/collections
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+<ParamField body="collectionIds" type="array" required>
+  New array of collection IDs
+</ParamField>
+
+---
+
+## Bulk Update Collections
+
+Add or remove collections for multiple ciphers.
+
+```bash
+POST /ciphers/bulk-collections
+```
+
+<ParamField body="organizationId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="cipherIds" type="array" required>
+  Array of cipher IDs to update
+</ParamField>
+
+<ParamField body="collectionIds" type="array" required>
+  Array of collection IDs
+</ParamField>
+
+<ParamField body="removeCollections" type="boolean" default="false">
+  Remove collections instead of adding them
+</ParamField>
+
+---
+
+## Archive Cipher
+
+Archive a single cipher.
+
+```bash
+PUT /ciphers/{id}/archive
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+---
+
+## Bulk Archive Ciphers
+
+Archive multiple ciphers at once.
+
+```bash
+PUT /ciphers/archive
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs to archive (max 500)
+</ParamField>
+
+---
+
+## Unarchive Cipher
+
+Restore an archived cipher.
+
+```bash
+PUT /ciphers/{id}/unarchive
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+---
+
+## Bulk Unarchive Ciphers
+
+Restore multiple archived ciphers.
+
+```bash
+PUT /ciphers/unarchive
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs to unarchive (max 500)
+</ParamField>
+
+---
+
+## Soft Delete Cipher
+
+Move a cipher to trash (soft delete).
+
+```bash
+PUT /ciphers/{id}/delete
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+---
+
+## Bulk Soft Delete
+
+Move multiple ciphers to trash.
+
+```bash
+PUT /ciphers/delete
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs (max 500)
+</ParamField>
+
+---
+
+## Restore Cipher
+
+Restore a soft-deleted cipher from trash.
+
+```bash
+PUT /ciphers/{id}/restore
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+---
+
+## Bulk Restore Ciphers
+
+Restore multiple ciphers from trash.
+
+```bash
+PUT /ciphers/restore
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs (max 500)
+</ParamField>
+
+---
+
+## Delete Cipher Permanently
+
+Permanently delete a cipher (cannot be undone).
+
+```bash
+DELETE /ciphers/{id}
+```
+
+<ParamField path="id" type="string" required>
+  The cipher ID
+</ParamField>
+
+<Warning>
+This permanently deletes the cipher. This action cannot be undone.
+</Warning>
+
+---
+
+## Bulk Delete Permanently
+
+Permanently delete multiple ciphers.
+
+```bash
+DELETE /ciphers
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs (max 500)
+</ParamField>
+
+---
+
+## Move Ciphers to Folder
+
+Move multiple ciphers to a folder.
+
+```bash
+PUT /ciphers/move
+```
+
+<ParamField body="ids" type="array" required>
+  Array of cipher IDs (max 500)
+</ParamField>
+
+<ParamField body="folderId" type="string">
+  Destination folder ID (null for no folder)
+</ParamField>
+
+---
+
+## Encryption
+
+<Info>
+All sensitive cipher data must be encrypted client-side before sending to the API. The API stores encrypted data only.
+</Info>
+
+### Encrypted Fields
+
+The following fields are encrypted:
+- `name`
+- `notes`
+- Login: `username`, `password`, `uris`, `totp`
+- Card: `cardholderName`, `number`, `code`
+- Identity: All fields
+- SSH Key: All fields
+
+### Encryption Format
+
+Encrypted strings follow the format: `{encType}.{encryptedData}|{iv}|{mac}`
+
+Example: `2.abc123|def456|ghi789`

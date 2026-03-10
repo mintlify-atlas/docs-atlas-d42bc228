@@ -1,0 +1,143 @@
+---
+title: "Secrets Manager Overview"
+description: "Overview of Bitwarden Secrets Manager API"
+---
+
+## What is Secrets Manager?
+
+Bitwarden Secrets Manager is a solution for storing, managing, and deploying secrets like API keys, database credentials, and certificates in your development and deployment workflows.
+
+## Key Concepts
+
+### Projects
+
+Projects are organizational units that group related secrets together. Examples:
+- Production Environment
+- Staging Environment
+- Mobile App
+- Web Application
+
+### Secrets
+
+Secrets are the actual sensitive values (API keys, passwords, tokens, etc.) stored within projects.
+
+### Service Accounts
+
+Service accounts are machine identities that can access secrets programmatically. They use access tokens for authentication.
+
+### Access Policies
+
+Access policies control which users, groups, or service accounts can access specific projects and secrets.
+
+---
+
+## Authentication
+
+Secrets Manager API requires authentication using the `secrets` policy:
+
+```bash
+Authorization: Bearer {access_token}
+```
+
+### Service Account Tokens
+
+For programmatic access, use service account access tokens:
+
+1. Create a service account
+2. Generate an access token
+3. Use the token in API requests
+
+---
+
+## API Structure
+
+All Secrets Manager endpoints use the `secrets` authorization policy:
+
+```
+GET    /organizations/{orgId}/projects
+GET    /organizations/{orgId}/secrets
+GET    /organizations/{orgId}/service-accounts
+```
+
+---
+
+## Access Control
+
+### User Access
+
+- Organization admins have full access
+- Regular users need explicit access grants
+- Access is controlled via access policies
+
+### Service Account Access
+
+- Service accounts have limited, scoped access
+- Can only access explicitly granted projects/secrets
+- Perfect for CI/CD pipelines
+
+---
+
+## Common Workflows
+
+### Development Workflow
+
+1. **Create Projects** for each environment (dev, staging, prod)
+2. **Add Secrets** to projects (API keys, DB credentials)
+3. **Grant Access** to developers via groups
+4. **Create Service Accounts** for deployment automation
+
+### CI/CD Integration
+
+1. **Create Service Account** for CI/CD system
+2. **Generate Access Token**
+3. **Grant Access** to required projects
+4. **Fetch Secrets** in deployment pipeline
+5. **Inject into Environment** variables
+
+---
+
+## Best Practices
+
+### Organization
+
+1. **Use Projects** to separate environments and applications
+2. **Name Clearly** - use consistent naming conventions
+3. **Limit Access** - grant minimum required permissions
+4. **Rotate Tokens** - regularly rotate service account tokens
+
+### Security
+
+1. **Use Service Accounts** for automation, not user tokens
+2. **Audit Access** - regularly review who has access
+3. **Rotate Secrets** - update secrets periodically
+4. **Monitor Usage** - check event logs for unusual activity
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Projects" icon="folder" href="/api/secrets-manager/projects">
+    Organize secrets into projects
+  </Card>
+  <Card title="Secrets" icon="key" href="/api/secrets-manager/secrets">
+    Manage secret values
+  </Card>
+  <Card title="Service Accounts" icon="robot" href="/api/secrets-manager/service-accounts">
+    Automate secret access
+  </Card>
+</CardGroup>
+
+---
+
+## Limits
+
+| Feature | Free | Teams | Enterprise |
+|---------|------|-------|------------|
+| Projects | 3 | Unlimited | Unlimited |
+| Secrets | 5 | Unlimited | Unlimited |
+| Service Accounts | 0 | Based on plan | Based on plan |
+
+<Note>
+Secrets Manager is available as an add-on for Teams and Enterprise plans.
+</Note>

@@ -1,0 +1,256 @@
+---
+title: Health Checks
+description: Configure and monitor health check endpoints for your Bitwarden Server deployment
+---
+
+Bitwarden Server provides health check endpoints to monitor the status of your deployment and its dependencies. These endpoints are critical for production monitoring, load balancers, and orchestration platforms.
+
+## Health Check Endpoints
+
+### Basic Health Check
+
+The basic health check endpoint provides a simple status indicator:
+
+```
+GET /healthz
+```
+
+**Response:**
+```json
+{
+  "status": "Healthy"
+}
+```
+
+This endpoint is suitable for:
+- Load balancer health checks
+- Kubernetes liveness probes
+- Basic uptime monitoring
+
+### Extended Health Check
+
+The extended health check provides detailed information about all system dependencies:
+
+```
+GET /healthz/extended
+```
+
+**Response Format:**
+```json
+{
+  "status": "Healthy",
+  "results": {
+    "identity": {
+      "status": "Healthy",
+      "description": "Identity service is reachable",
+      "data": {}
+    },
+    "sqlserver": {
+      "status": "Healthy",
+      "description": "Database connection successful",
+      "data": {}
+    }
+  }
+}
+```
+
+## Configuration
+
+### Health Check Services
+
+Health checks are configured in the API service startup. The implementation is in `src/SharedWeb/Health/HealthCheckServiceExtensions.cs` and `src/Api/Utilities/ServiceCollectionExtensions.cs:77`.
+
+**Default Checks:**
+
+1. **Identity Service Check**
+   - Verifies the Identity service OpenID configuration endpoint
+   - URL: `{IdentityUri}/.well-known/openid-configuration`
+
+2. **SQL Server Check**
+   - Validates database connectivity
+   - Uses the configured connection string from `globalSettings.SqlServer.ConnectionString`
+
+### Self-Hosted Deployments
+
+<Warning>
+Health check endpoints are **disabled by default** for self-hosted deployments. They are only enabled for cloud deployments.
+</Warning>
+
+To enable health checks in self-hosted environments, you'll need to modify the startup configuration in `src/Api/Startup.cs:196`.
+
+## Rate Limiting
+
+The `/alive` endpoint (if configured) has rate limiting applied:
+
+```json
+{
+  "Endpoint": "get:/alive",
+  "Period": "1m",
+  "Limit": 5
+}
+```
+
+This prevents abuse while allowing regular monitoring checks.
+
+## Monitoring Integration
+
+### Kubernetes
+
+Configure liveness and readiness probes:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /healthz/extended
+    port: 5000
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+```
+
+### Docker Swarm
+
+Add a health check to your service definition:
+
+```yaml
+services:
+  api:
+    image: bitwarden/api
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+```
+
+### Load Balancers
+
+#### NGINX
+
+```nginx
+upstream bitwarden_api {
+    server api:5000 max_fails=3 fail_timeout=30s;
+    # Health check in NGINX Plus
+    # health_check interval=10 uri=/healthz;
+}
+```
+
+#### HAProxy
+
+```
+backend bitwarden_api
+    option httpchk GET /healthz
+    http-check expect status 200
+    server api1 api:5000 check inter 10s fall 3 rise 2
+```
+
+## Health Check Response Format
+
+The health check response writer is implemented in `src/SharedWeb/Health/HealthCheckServiceExtensions.cs:22`.
+
+**Status Values:**
+- `Healthy` - Service is operating normally
+- `Degraded` - Service is operational but with issues
+- `Unhealthy` - Service is not operational
+
+**Extended Response Structure:**
+
+```json
+{
+  "status": "string",
+  "results": {
+    "<check-name>": {
+      "status": "string",
+      "description": "string",
+      "data": {}
+    }
+  }
+}
+```
+
+## Troubleshooting
+
+### Health Check Fails Immediately
+
+**Symptom:** `/healthz` returns 503 or times out
+
+**Possible Causes:**
+1. Identity service is unreachable
+2. Database connection is unavailable
+3. Service hasn't finished starting up
+
+**Resolution:**
+<Steps>
+  <Step title="Check Identity Service">
+    Verify the Identity service is running and accessible:
+    ```bash
+    curl https://identity.example.com/.well-known/openid-configuration
+    ```
+  </Step>
+  
+  <Step title="Test Database Connection">
+    Verify SQL Server connectivity from the API container:
+    ```bash
+    docker exec -it bitwarden-api bash
+    # Test connection using sqlcmd or similar tool
+    ```
+  </Step>
+  
+  <Step title="Check Service Logs">
+    Review the API service logs for startup errors:
+    ```bash
+    docker logs bitwarden-api
+    ```
+  </Step>
+</Steps>
+
+### Intermittent Health Check Failures
+
+**Symptom:** Health checks occasionally fail even when service appears healthy
+
+**Common Causes:**
+1. Network timeouts between services
+2. Database connection pool exhaustion
+3. Identity service under load
+
+**Resolution:**
+- Increase health check timeout values
+- Review database connection pool settings in `appsettings.json`
+- Check Identity service resource allocation
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Different Endpoints" icon="split">
+    Use `/healthz` for liveness probes and `/healthz/extended` for readiness probes to get appropriate granularity.
+  </Card>
+  
+  <Card title="Set Appropriate Timeouts" icon="clock">
+    Configure health check timeouts longer than your monitoring interval to avoid false positives.
+  </Card>
+  
+  <Card title="Monitor Trends" icon="chart-line">
+    Track health check response times to identify performance degradation before failures occur.
+  </Card>
+  
+  <Card title="Alert on Patterns" icon="bell">
+    Alert on multiple consecutive failures rather than single failures to reduce noise.
+  </Card>
+</CardGroup>
+
+## Related Resources
+
+- [Logging Configuration](/operations/logging)
+- [Metrics and Telemetry](/operations/metrics)
+- [Troubleshooting Guide](/operations/troubleshooting)

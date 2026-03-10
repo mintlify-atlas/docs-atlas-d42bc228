@@ -1,0 +1,442 @@
+---
+title: "Public Policies API"
+description: "Manage organization security policies via the Public API"
+---
+
+## Overview
+
+The Public Policies API allows programmatic configuration of organization security policies.
+
+<Info>
+Policies are only available on Teams and Enterprise plans.
+</Info>
+
+## List Policies
+
+Retrieve all policies for the organization.
+
+```bash
+GET /public/policies
+```
+
+### Response
+
+<ResponseField name="object" type="string">
+  Always "list"
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  Array of policy objects
+</ResponseField>
+
+### Policy Object
+
+<ResponseField name="id" type="string" required>
+  Policy unique identifier
+</ResponseField>
+
+<ResponseField name="type" type="string" required>
+  Policy type (see Policy Types below)
+</ResponseField>
+
+<ResponseField name="enabled" type="boolean" required>
+  Whether policy is active
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Policy-specific configuration
+</ResponseField>
+
+---
+
+## Get Policy
+
+Retrieve a specific policy by ID.
+
+```bash
+GET /public/policies/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Policy ID
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/public/policies/{id}" \
+  -H "Authorization: Bearer {org_api_token}"
+```
+
+```javascript JavaScript
+const policy = await fetch(
+  `https://api.bitwarden.com/public/policies/${policyId}`,
+  {
+    headers: {
+      'Authorization': `Bearer ${orgToken}`
+    }
+  }
+).then(r => r.json());
+```
+</CodeGroup>
+
+---
+
+## Update Policy
+
+Enable or update a policy configuration.
+
+```bash
+PUT /public/policies/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Policy ID
+</ParamField>
+
+### Request Body
+
+<ParamField body="enabled" type="boolean" required>
+  Enable or disable the policy
+</ParamField>
+
+<ParamField body="data" type="object">
+  Policy-specific configuration (varies by type)
+</ParamField>
+
+---
+
+## Policy Types
+
+### Two-Factor Authentication
+
+Require all members to enable 2FA.
+
+```json
+{
+  "type": "twoFactorAuthentication",
+  "enabled": true,
+  "data": null
+}
+```
+
+### Master Password
+
+Enforce master password requirements.
+
+```json
+{
+  "type": "masterPassword",
+  "enabled": true,
+  "data": {
+    "minComplexity": 3,
+    "minLength": 12,
+    "requireUpper": true,
+    "requireLower": true,
+    "requireNumbers": true,
+    "requireSpecial": true
+  }
+}
+```
+
+### Password Generator
+
+Set minimum password generator requirements.
+
+```json
+{
+  "type": "passwordGenerator",
+  "enabled": true,
+  "data": {
+    "defaultType": "password",
+    "minLength": 14,
+    "useUpper": true,
+    "useLower": true,
+    "useNumbers": true,
+    "useSpecial": true,
+    "minNumbers": 1,
+    "minSpecial": 1
+  }
+}
+```
+
+### Single Organization
+
+Prevent members from joining other organizations.
+
+```json
+{
+  "type": "singleOrg",
+  "enabled": true,
+  "data": null
+}
+```
+
+### Require SSO
+
+Require SSO authentication.
+
+```json
+{
+  "type": "requireSso",
+  "enabled": true,
+  "data": null
+}
+```
+
+### Personal Ownership
+
+Require all items to be organization-owned.
+
+```json
+{
+  "type": "personalOwnership",
+  "enabled": true,
+  "data": null
+}
+```
+
+### Disable Send
+
+Disable Bitwarden Send.
+
+```json
+{
+  "type": "disableSend",
+  "enabled": true,
+  "data": null
+}
+```
+
+### Send Options
+
+Control Send feature options.
+
+```json
+{
+  "type": "sendOptions",
+  "enabled": true,
+  "data": {
+    "disableHideEmail": true
+  }
+}
+```
+
+### Reset Password
+
+Allow admin password reset.
+
+```json
+{
+  "type": "resetPassword",
+  "enabled": true,
+  "data": {
+    "autoEnrollEnabled": false
+  }
+}
+```
+
+### Maximum Vault Timeout
+
+Enforce maximum vault timeout.
+
+```json
+{
+  "type": "maximumVaultTimeout",
+  "enabled": true,
+  "data": {
+    "minutes": 60
+  }
+}
+```
+
+---
+
+## Examples
+
+### Enable Two-Factor Requirement
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "https://api.bitwarden.com/public/policies/{policyId}" \
+  -H "Authorization: Bearer {org_api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "enabled": true,
+    "data": null
+  }'
+```
+
+```javascript JavaScript
+await fetch(
+  `https://api.bitwarden.com/public/policies/${twoFactorPolicyId}`,
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      enabled: true,
+      data: null
+    })
+  }
+);
+```
+
+```python Python
+import requests
+
+requests.put(
+    f'https://api.bitwarden.com/public/policies/{policy_id}',
+    headers={'Authorization': f'Bearer {org_token}'},
+    json={
+        'enabled': True,
+        'data': None
+    }
+)
+```
+</CodeGroup>
+
+### Configure Master Password Policy
+
+```javascript
+const masterPasswordPolicy = policies.data.find(
+  p => p.type === 'masterPassword'
+);
+
+await fetch(
+  `https://api.bitwarden.com/public/policies/${masterPasswordPolicy.id}`,
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      enabled: true,
+      data: {
+        minComplexity: 4,
+        minLength: 14,
+        requireUpper: true,
+        requireLower: true,
+        requireNumbers: true,
+        requireSpecial: true,
+        enforceOnLogin: false
+      }
+    })
+  }
+);
+```
+
+### Audit Policy Compliance
+
+```python
+import requests
+
+# Get all policies
+response = requests.get(
+    'https://api.bitwarden.com/public/policies',
+    headers={'Authorization': f'Bearer {org_token}'}
+)
+
+policies = response.json()['data']
+
+# Check which security policies are enabled
+security_policies = [
+    'twoFactorAuthentication',
+    'masterPassword',
+    'singleOrg',
+    'requireSso'
+]
+
+print("Security Policy Status")
+print("=====================")
+
+for policy_type in security_policies:
+    policy = next(
+        (p for p in policies if p['type'] == policy_type),
+        None
+    )
+    
+    if policy:
+        status = "✓ Enabled" if policy['enabled'] else "✗ Disabled"
+        print(f"{policy_type}: {status}")
+```
+
+### Automated Policy Setup
+
+```javascript
+// Configure all security policies for new organization
+const securityPolicies = {
+  twoFactorAuthentication: { enabled: true, data: null },
+  singleOrg: { enabled: true, data: null },
+  masterPassword: {
+    enabled: true,
+    data: {
+      minComplexity: 3,
+      minLength: 12,
+      requireUpper: true,
+      requireLower: true,
+      requireNumbers: true,
+      requireSpecial: true
+    }
+  },
+  maximumVaultTimeout: {
+    enabled: true,
+    data: { minutes: 60 }
+  }
+};
+
+// Get current policies
+const response = await fetch(
+  'https://api.bitwarden.com/public/policies',
+  {headers: {'Authorization': `Bearer ${orgToken}`}}
+);
+const policies = await response.json();
+
+// Update each policy
+for (const [type, config] of Object.entries(securityPolicies)) {
+  const policy = policies.data.find(p => p.type === type);
+  
+  if (policy) {
+    await fetch(
+      `https://api.bitwarden.com/public/policies/${policy.id}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${orgToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(config)
+      }
+    );
+    
+    console.log(`✓ Configured ${type}`);
+  }
+}
+```
+
+---
+
+## Policy Dependencies
+
+Some policies require others:
+
+| Policy | Requires |
+|--------|----------|
+| Reset Password | Single Organization |
+| Require SSO | Single Organization |
+
+<Warning>
+Enable prerequisite policies first to avoid errors.
+</Warning>
+
+---
+
+## Best Practices
+
+1. **Test in staging** - Test policy changes with a subset of users first
+2. **Communicate changes** - Notify users before enabling policies
+3. **Grace period** - Give users time to comply before enforcement
+4. **Monitor compliance** - Check policy adherence regularly
+5. **Document policies** - Keep records of when/why policies were enabled

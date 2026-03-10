@@ -1,0 +1,393 @@
+---
+title: "Collections API"
+description: "Organize and share organization vault items with collections"
+---
+
+## Overview
+
+Collections are used to organize and share vault items within organizations. They enable fine-grained access control by allowing you to:
+
+- Group organization vault items
+- Assign access to specific users and groups
+- Set read-only or read-write permissions
+- Manage which organization members can access which items
+
+<Info>
+Collections are organization-specific. For personal item organization, use [Folders](/api/vault/folders).
+</Info>
+
+## Get Collection
+
+Retrieve a specific collection by ID.
+
+```bash
+GET /organizations/{orgId}/collections/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Collection ID
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  Collection unique identifier
+</ResponseField>
+
+<ResponseField name="organizationId" type="string" required>
+  Parent organization ID
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Encrypted collection name
+</ResponseField>
+
+<ResponseField name="externalId" type="string">
+  External identifier for directory sync
+</ResponseField>
+
+---
+
+## Get Collection with Details
+
+Retrieve collection with access details (users and groups).
+
+```bash
+GET /organizations/{orgId}/collections/{id}/details
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Collection ID
+</ParamField>
+
+### Response
+
+Includes collection data plus:
+
+<ResponseField name="users" type="array">
+  Array of user access assignments
+</ResponseField>
+
+<ResponseField name="groups" type="array">
+  Array of group access assignments
+</ResponseField>
+
+<ResponseField name="assigned" type="boolean">
+  Whether current user has access
+</ResponseField>
+
+<ResponseField name="readOnly" type="boolean">
+  Whether current user has read-only access
+</ResponseField>
+
+---
+
+## List Collections
+
+Retrieve all collections for an organization.
+
+```bash
+GET /organizations/{orgId}/collections
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+### Response
+
+Returns collections the user has access to manage or read.
+
+---
+
+## List Collections with Details
+
+Retrieve all collections with access details.
+
+```bash
+GET /organizations/{orgId}/collections/details
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+### Response
+
+Returns collections with user and group assignments.
+
+---
+
+## List User's Collections
+
+Retrieve all collections assigned to the current user across all organizations.
+
+```bash
+GET /collections
+```
+
+### Response
+
+Returns collections from all organizations where the user is a member.
+
+---
+
+## Create Collection
+
+Create a new collection in an organization.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/organizations/{orgId}/collections" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "2.encrypted_collection_name",
+    "groups": [
+      {
+        "id": "group-guid",
+        "readOnly": false,
+        "hidePasswords": false
+      }
+    ],
+    "users": [
+      {
+        "id": "user-guid",
+        "readOnly": false,
+        "hidePasswords": false
+      }
+    ]
+  }'
+```
+
+```javascript JavaScript
+const collection = await fetch(
+  `https://api.bitwarden.com/organizations/${orgId}/collections`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: '2.encrypted_name',
+      groups: [{id: groupId, readOnly: false}],
+      users: [{id: userId, readOnly: false}]
+    })
+  }
+);
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Encrypted collection name
+</ParamField>
+
+<ParamField body="externalId" type="string">
+  External identifier for sync systems
+</ParamField>
+
+<ParamField body="groups" type="array">
+  Array of group access assignments
+</ParamField>
+
+<ParamField body="users" type="array">
+  Array of user access assignments
+</ParamField>
+
+### Group/User Access Object
+
+<ParamField body="id" type="string" required>
+  Group or user ID
+</ParamField>
+
+<ParamField body="readOnly" type="boolean" default="false">
+  Read-only access (cannot edit items)
+</ParamField>
+
+<ParamField body="hidePasswords" type="boolean" default="false">
+  Hide password fields from user
+</ParamField>
+
+<ParamField body="manage" type="boolean" default="false">
+  Can manage collection membership
+</ParamField>
+
+---
+
+## Update Collection
+
+Update an existing collection.
+
+```bash
+PUT /organizations/{orgId}/collections/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Collection ID
+</ParamField>
+
+### Request Body
+
+Same as Create Collection - all fields must be provided.
+
+---
+
+## Get Collection Users
+
+Retrieve users assigned to a collection.
+
+```bash
+GET /organizations/{orgId}/collections/{id}/users
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Collection ID
+</ParamField>
+
+### Response
+
+Returns array of user access assignments with permissions.
+
+---
+
+## Delete Collection
+
+Permanently delete a collection.
+
+```bash
+DELETE /organizations/{orgId}/collections/{id}
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField path="id" type="string" required>
+  Collection ID to delete
+</ParamField>
+
+<Warning>
+Deleting a collection removes all items from that collection. If items are only in this collection, they become unassigned. This action cannot be undone.
+</Warning>
+
+---
+
+## Bulk Delete Collections
+
+Delete multiple collections at once.
+
+```bash
+DELETE /organizations/{orgId}/collections
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="ids" type="array" required>
+  Array of collection IDs to delete
+</ParamField>
+
+<ParamField body="organizationId" type="string" required>
+  Organization ID (must match path parameter)
+</ParamField>
+
+---
+
+## Bulk Add Collection Access
+
+Add users or groups to multiple collections.
+
+```bash
+PUT /organizations/{orgId}/collections/bulk-access
+```
+
+<ParamField path="orgId" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="collectionIds" type="array" required>
+  Array of collection IDs
+</ParamField>
+
+<ParamField body="users" type="array">
+  Array of user access assignments
+</ParamField>
+
+<ParamField body="groups" type="array">
+  Array of group access assignments
+</ParamField>
+
+---
+
+## Collection Permissions
+
+### Permission Levels
+
+| Permission | Description |
+|------------|-------------|
+| **View** | Can see items in collection |
+| **Edit** | Can modify items (requires readOnly: false) |
+| **Manage** | Can edit collection membership |
+| **Hide Passwords** | Can view items but not passwords |
+
+### Access Control
+
+Collections support both:
+- **User-level access**: Assign individual users
+- **Group-level access**: Assign groups (all group members inherit access)
+
+<Info>
+Group-based access is recommended for easier management and better security.
+</Info>
+
+---
+
+## Best Practices
+
+### Organization Strategy
+
+1. **Use groups for access control** instead of individual users
+2. **Create collections by department or team** for logical organization
+3. **Limit read-write access** - use read-only where possible
+4. **Review access regularly** to ensure proper permissions
+
+### Naming Conventions
+
+```
+[Department] - [Team/Purpose]
+
+Examples:
+- Engineering - Production Credentials
+- Marketing - Social Media Accounts
+- Finance - Banking Access
+```
+
+---
+
+## Encryption
+
+<Info>
+Collection names are encrypted with the organization key, not individual user keys.
+</Info>
+
+All organization members with access can decrypt collection names using the shared organization key.

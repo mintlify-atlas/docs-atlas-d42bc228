@@ -1,0 +1,395 @@
+---
+title: "Two-Factor Authentication API"
+description: "Configure and manage two-factor authentication methods"
+---
+
+## Overview
+
+Bitwarden supports multiple two-factor authentication (2FA) providers to enhance account security.
+
+### Supported Providers
+
+- **Authenticator App** (TOTP)
+- **Email**
+- **Duo Security**
+- **YubiKey**
+- **WebAuthn (FIDO2)**
+
+## List Two-Factor Providers
+
+Get all configured two-factor providers for the authenticated user.
+
+```bash
+GET /two-factor
+```
+
+### Response
+
+Returns a list of enabled two-factor providers with their configurations.
+
+---
+
+## Authenticator (TOTP)
+
+### Get Authenticator Setup
+
+Retrieve the secret key and QR code for setting up authenticator apps.
+
+```bash
+POST /two-factor/get-authenticator
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+### Response
+
+<ResponseField name="key" type="string" required>
+  Base32-encoded secret key
+</ResponseField>
+
+<ResponseField name="qr" type="string" required>
+  SVG QR code for scanning
+</ResponseField>
+
+<ResponseField name="userVerificationToken" type="string" required>
+  Token for completing setup
+</ResponseField>
+
+### Enable Authenticator
+
+```bash
+PUT /two-factor/authenticator
+```
+
+<ParamField body="token" type="string" required>
+  6-digit code from authenticator app
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Secret key from setup
+</ParamField>
+
+<ParamField body="userVerificationToken" type="string" required>
+  Verification token from setup
+</ParamField>
+
+### Disable Authenticator
+
+```bash
+DELETE /two-factor/authenticator
+```
+
+<ParamField body="type" type="number" required>
+  Provider type (0 for Authenticator)
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Secret key
+</ParamField>
+
+<ParamField body="userVerificationToken" type="string" required>
+  Verification token
+</ParamField>
+
+---
+
+## Email 2FA
+
+### Get Email Configuration
+
+```bash
+POST /two-factor/get-email
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Send Setup Email
+
+```bash
+POST /two-factor/send-email
+```
+
+<ParamField body="email" type="string" required>
+  Email address to use for 2FA
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Enable Email 2FA
+
+```bash
+PUT /two-factor/email
+```
+
+<ParamField body="email" type="string" required>
+  Email address for 2FA
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  6-digit code from email
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+---
+
+## Duo Security
+
+### Get Duo Configuration
+
+```bash
+POST /two-factor/get-duo
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Enable Duo
+
+```bash
+PUT /two-factor/duo
+```
+
+<ParamField body="clientId" type="string" required>
+  Duo client ID
+</ParamField>
+
+<ParamField body="clientSecret" type="string" required>
+  Duo client secret
+</ParamField>
+
+<ParamField body="host" type="string" required>
+  Duo API hostname
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+---
+
+## Organization Duo
+
+### Get Organization Duo Configuration
+
+```bash
+POST /organizations/{id}/two-factor/get-duo
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+### Enable Organization Duo
+
+```bash
+PUT /organizations/{id}/two-factor/duo
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="clientId" type="string" required>
+  Duo client ID
+</ParamField>
+
+<ParamField body="clientSecret" type="string" required>
+  Duo client secret
+</ParamField>
+
+<ParamField body="host" type="string" required>
+  Duo API hostname
+</ParamField>
+
+### Disable Organization Duo
+
+```bash
+PUT /organizations/{id}/two-factor/disable
+```
+
+<ParamField path="id" type="string" required>
+  Organization ID
+</ParamField>
+
+<ParamField body="type" type="number" required>
+  Provider type (6 for OrganizationDuo)
+</ParamField>
+
+---
+
+## YubiKey
+
+### Get YubiKey Configuration
+
+```bash
+POST /two-factor/get-yubikey
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Enable YubiKey
+
+```bash
+PUT /two-factor/yubikey
+```
+
+<ParamField body="key1" type="string">
+  First YubiKey OTP (12 characters)
+</ParamField>
+
+<ParamField body="key2" type="string">
+  Second YubiKey OTP (optional)
+</ParamField>
+
+<ParamField body="key3" type="string">
+  Third YubiKey OTP (optional)
+</ParamField>
+
+<ParamField body="key4" type="string">
+  Fourth YubiKey OTP (optional)
+</ParamField>
+
+<ParamField body="key5" type="string">
+  Fifth YubiKey OTP (optional)
+</ParamField>
+
+<ParamField body="nfc" type="boolean">
+  Whether NFC is supported
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+<Info>
+You can register up to 5 YubiKeys. The first key is required, others are optional backups.
+</Info>
+
+---
+
+## WebAuthn (FIDO2)
+
+### Get WebAuthn Configuration
+
+```bash
+POST /two-factor/get-webauthn
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Start WebAuthn Registration
+
+```bash
+POST /two-factor/get-webauthn-challenge
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Response
+
+Returns a challenge object compatible with `navigator.credentials.create()`.
+
+### Complete WebAuthn Registration
+
+```bash
+PUT /two-factor/webauthn
+```
+
+<ParamField body="id" type="number" required>
+  Credential ID
+</ParamField>
+
+<ParamField body="name" type="string" required>
+  Friendly name for the security key
+</ParamField>
+
+<ParamField body="deviceResponse" type="object" required>
+  Response from `navigator.credentials.create()`
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Delete WebAuthn Credential
+
+```bash
+DELETE /two-factor/webauthn
+```
+
+<ParamField body="id" type="number" required>
+  Credential ID to delete
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+---
+
+## Disable Two-Factor Provider
+
+Disable a specific two-factor provider.
+
+```bash
+PUT /two-factor/disable
+```
+
+<ParamField body="type" type="number" required>
+  Provider type to disable
+</ParamField>
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Provider Types
+
+- `0` - Authenticator
+- `1` - Email  
+- `2` - Duo
+- `3` - YubiKey
+- `4` - U2F (deprecated)
+- `5` - Remember
+- `6` - OrganizationDuo
+- `7` - WebAuthn
+
+---
+
+## Get Recovery Code
+
+Retrieve the two-factor recovery code.
+
+```bash
+POST /two-factor/get-recover
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash
+</ParamField>
+
+### Response
+
+<ResponseField name="code" type="string">
+  Recovery code for bypassing 2FA
+</ResponseField>
+
+<Warning>
+Store your recovery code in a safe place. It can be used to access your account if you lose access to all 2FA methods.
+</Warning>

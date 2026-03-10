@@ -1,0 +1,264 @@
+---
+title: "Auth Requests API"
+description: "Passwordless authentication using device approval flows"
+---
+
+## Overview
+
+Auth Requests enable passwordless login flows where users can approve authentication requests from other devices. This is commonly used for "Login with Device" functionality.
+
+## List Auth Requests
+
+Retrieve all authentication requests for the current user.
+
+```bash
+GET /auth-requests
+```
+
+### Response
+
+Returns a list of auth requests with status, device information, and timestamps.
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the auth request
+</ResponseField>
+
+<ResponseField name="publicKey" type="string">
+  Public key for secure communication
+</ResponseField>
+
+<ResponseField name="requestDeviceType" type="number">
+  Type of device making the request
+</ResponseField>
+
+<ResponseField name="requestIpAddress" type="string">
+  IP address of the requesting device
+</ResponseField>
+
+<ResponseField name="creationDate" type="string">
+  When the request was created
+</ResponseField>
+
+<ResponseField name="responseDate" type="string">
+  When the request was responded to
+</ResponseField>
+
+<ResponseField name="requestApproved" type="boolean">
+  Whether the request was approved
+</ResponseField>
+
+---
+
+## Get Auth Request
+
+Retrieve details of a specific authentication request.
+
+```bash
+GET /auth-requests/{id}
+```
+
+<ParamField path="id" type="string" required>
+  The auth request ID
+</ParamField>
+
+---
+
+## Get Pending Auth Requests
+
+Retrieve all pending authentication requests awaiting approval.
+
+```bash
+GET /auth-requests/pending
+```
+
+### Response
+
+Returns only auth requests that are pending approval (not yet approved or denied).
+
+---
+
+## Create Auth Request
+
+Create a new authentication request for passwordless login.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/auth-requests" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "publicKey": "...",
+    "deviceIdentifier": "abc123",
+    "accessCode": "...",
+    "type": 0
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.bitwarden.com/auth-requests', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    publicKey: '...',
+    deviceIdentifier: 'abc123',
+    accessCode: '...',
+    type: 0
+  })
+});
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="email" type="string" required>
+  Email address of the user
+</ParamField>
+
+<ParamField body="publicKey" type="string" required>
+  Public key for encryption
+</ParamField>
+
+<ParamField body="deviceIdentifier" type="string" required>
+  Unique identifier for the requesting device
+</ParamField>
+
+<ParamField body="accessCode" type="string" required>
+  One-time access code for validation
+</ParamField>
+
+<ParamField body="type" type="number" required>
+  Auth request type (0 = AuthenticateAndUnlock, 1 = Unlock, 2 = AdminApproval)
+</ParamField>
+
+<ParamField body="fingerprint" type="string">
+  Device fingerprint for display
+</ParamField>
+
+<Note>
+This endpoint does not require authentication when creating user auth requests. Admin approval requests require authentication.
+</Note>
+
+---
+
+## Create Admin Auth Request
+
+Create an authentication request requiring admin approval.
+
+```bash
+POST /auth-requests/admin-request
+```
+
+<ParamField body="email" type="string" required>
+  Email address of the user
+</ParamField>
+
+<ParamField body="publicKey" type="string" required>
+  Public key for encryption
+</ParamField>
+
+<ParamField body="type" type="number" required>
+  Must be 2 (AdminApproval)
+</ParamField>
+
+<Info>
+This endpoint requires authentication and is used for trusted device encryption workflows.
+</Info>
+
+---
+
+## Update Auth Request
+
+Approve or deny an authentication request.
+
+```bash
+PUT /auth-requests/{id}
+```
+
+<ParamField path="id" type="string" required>
+  The auth request ID
+</ParamField>
+
+### Request Body
+
+<ParamField body="requestApproved" type="boolean" required>
+  Whether to approve (true) or deny (false) the request
+</ParamField>
+
+<ParamField body="key" type="string">
+  Encrypted key (required when approving)
+</ParamField>
+
+<ParamField body="masterPasswordHash" type="string">
+  Master password hash (required when approving)
+</ParamField>
+
+<ParamField body="deviceIdentifier" type="string">
+  Approving device identifier
+</ParamField>
+
+### Example: Approve Request
+
+```json
+{
+  "requestApproved": true,
+  "key": "encrypted_key_data",
+  "masterPasswordHash": "hashed_password",
+  "deviceIdentifier": "approving_device_id"
+}
+```
+
+### Example: Deny Request
+
+```json
+{
+  "requestApproved": false
+}
+```
+
+---
+
+## Get Auth Request Response
+
+Retrieve the response for an auth request (used by requesting device).
+
+```bash
+GET /auth-requests/{id}/response?code={accessCode}
+```
+
+<ParamField path="id" type="string" required>
+  The auth request ID
+</ParamField>
+
+<ParamField query="code" type="string" required>
+  Access code provided when creating the request
+</ParamField>
+
+<Note>
+This endpoint does not require authentication. The access code serves as verification.
+</Note>
+
+---
+
+## Auth Request Workflow
+
+### Login with Device Flow
+
+1. **Requesting Device**: Creates auth request with `POST /auth-requests`
+2. **Requesting Device**: Polls `GET /auth-requests/{id}/response` for approval
+3. **Approving Device**: Views pending requests with `GET /auth-requests/pending`
+4. **Approving Device**: Approves request with `PUT /auth-requests/{id}`
+5. **Requesting Device**: Receives encrypted key and completes authentication
+
+### Admin Approval Flow
+
+1. **User Device**: Creates admin auth request with `POST /auth-requests/admin-request`
+2. **Admin**: Views request in organization admin console
+3. **Admin**: Approves or denies request
+4. **User Device**: Receives response and completes setup
+
+<Warning>
+Auth requests have a limited lifetime and expire if not approved. Only approve requests from devices you recognize.
+</Warning>

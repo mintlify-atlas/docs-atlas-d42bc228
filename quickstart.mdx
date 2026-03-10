@@ -1,80 +1,227 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get Bitwarden Server running locally in minutes"
 ---
 
-## Get started in three steps
+This quickstart guide will help you get Bitwarden Server running locally for development or evaluation purposes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+Before you begin, ensure you have the following installed:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+- [.NET 8.0 SDK](https://dotnet.microsoft.com/download)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop)
+- [Git](https://git-scm.com/)
+- A code editor (VS Code, Visual Studio, or JetBrains Rider recommended)
 
-### Step 2: Deploy your changes
+## Quick Start with Docker
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+The fastest way to get started is using Docker Compose for the development environment.
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone https://github.com/bitwarden/server.git
+    cd server
+    ```
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Start the Development Environment">
+    Start the required infrastructure services (database, storage, mail):
 
-### Step 3: Go live
+    ```bash
+    cd dev
+    docker compose --profile cloud up -d
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    This starts:
+    - **SQL Server** on port 1433
+    - **Azure Storage Emulator** (Azurite) on ports 10000-10002
+    - **MailCatcher** on port 1080 (web UI) and 1025 (SMTP)
 
-## Next steps
+    <Info>
+      Wait about 30 seconds for SQL Server to initialize before proceeding.
+    </Info>
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Initialize the Database">
+    Apply database migrations:
 
-<CardGroup cols={2}>
+    ```bash
+    cd ../util/Migrator
+    dotnet run
+    ```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    You should see output indicating successful migration application.
+  </Step>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Step title="Run the API Service">
+    Start the main API service:
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    ```bash
+    cd ../../src/Api
+    dotnet run
+    ```
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    The API will start on `https://localhost:4000` and `http://localhost:5000`.
+  </Step>
 
-</CardGroup>
+  <Step title="Run the Identity Service">
+    In a new terminal, start the Identity service:
+
+    ```bash
+    cd src/Identity
+    dotnet run
+    ```
+
+    The Identity service will start on `https://localhost:33656`.
+  </Step>
+</Steps>
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Your Bitwarden Server is now running! The API is available at `https://localhost:4000`.
 </Note>
+
+## Verify Installation
+
+Test the API with a health check:
+
+```bash
+curl https://localhost:4000/healthz
+```
+
+You should receive a `200 OK` response.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Setup Guide" icon="laptop-code" href="/development/local-setup">
+    Configure your development environment for full-featured development
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the microservices architecture and service relationships
+  </Card>
+  
+  <Card title="API Reference" icon="code" href="/api/authentication/overview">
+    Explore the REST API endpoints and authentication flows
+  </Card>
+  
+  <Card title="Deploy with Docker" icon="docker" href="/deployment/docker">
+    Deploy a production-ready instance with Docker
+  </Card>
+</CardGroup>
+
+## Alternative: Run All Services
+
+To run all services at once, use the docker-compose configuration:
+
+```bash
+cd dev
+docker compose --profile cloud --profile idp up -d
+```
+
+This includes:
+- All infrastructure services
+- Test identity provider (SimpleSAMLphp) on port 8090
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="SQL Server connection failed">
+    If you see database connection errors:
+    
+    1. Ensure SQL Server is running: `docker ps`
+    2. Wait 30-60 seconds for SQL Server to fully initialize
+    3. Check the connection string in `dev/.env` or `src/Api/appsettings.json`
+    4. Try restarting the SQL Server container:
+       ```bash
+       docker compose restart mssql
+       ```
+  </Accordion>
+
+  <Accordion title="Port already in use">
+    If ports are already in use:
+    
+    1. Check what's using the port: `lsof -i :4000` (Linux/Mac) or `netstat -ano | findstr :4000` (Windows)
+    2. Either stop the conflicting service or modify the port in `launchSettings.json`
+    3. Common conflicting ports: 4000 (API), 33656 (Identity), 1433 (SQL Server)
+  </Accordion>
+
+  <Accordion title="Certificate errors">
+    If you encounter HTTPS certificate warnings:
+    
+    ```bash
+    # Trust the development certificate
+    dotnet dev-certs https --trust
+    ```
+    
+    On Linux, you may need to accept the certificate in your browser.
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+For local development, create a `dev/.env` file with your configuration:
+
+```bash
+# Database
+MSSQL_PASSWORD=YourStrongPassword123!
+
+# Storage (using Azurite defaults)
+globalSettings__attachment__baseDirectory=/mnt/data/attachments
+globalSettings__send__baseDirectory=/mnt/data/sends
+
+# Mail (using MailCatcher)
+globalSettings__mail__smtp__host=localhost
+globalSettings__mail__smtp__port=1025
+```
+
+See [Environment Variables](/deployment/environment-variables) for a complete reference.
+
+## Development Workflow
+
+Once your environment is set up:
+
+1. **Make changes** to the code in `src/`
+2. **Run tests**: `dotnet test` from the solution root
+3. **Build**: `dotnet build`
+4. **Debug**: Use your IDE's debugging features with breakpoints
+
+See the [Development Guide](/development/local-setup) for IDE-specific configuration.
+
+## Docker Compose Profiles
+
+The development docker-compose configuration supports multiple profiles:
+
+- `cloud` - Core infrastructure (SQL, Azurite, MailCatcher)
+- `mssql` - SQL Server only
+- `postgres` - PostgreSQL (alternative to SQL Server)
+- `mysql` - MySQL (alternative to SQL Server)
+- `idp` - SimpleSAMLphp test identity provider
+- `storage` - Azurite storage emulator
+
+Example:
+```bash
+docker compose --profile postgres --profile storage up -d
+```
+
+## Need Help?
+
+<CardGroup cols={2}>
+  <Card title="Contributing Guide" icon="code-pull-request" href="/development/contribution-guide">
+    Learn how to contribute to Bitwarden Server
+  </Card>
+  
+  <Card title="Community Forums" icon="comments" href="https://community.bitwarden.com">
+    Get help from the community
+  </Card>
+  
+  <Card title="GitHub Issues" icon="github" href="https://github.com/bitwarden/server/issues">
+    Report bugs or request features
+  </Card>
+  
+  <Card title="Security" icon="shield" href="/development/security">
+    Report security vulnerabilities
+  </Card>
+</CardGroup>

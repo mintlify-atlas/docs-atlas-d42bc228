@@ -1,122 +1,192 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Bitwarden Server",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#175edc",
+    "light": "#84acec",
+    "dark": "#040404"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/b3950345-74c8-4b46-a344-35d8ced25205.png",
+  "logo": {
+    "light": "https://media.brand.dev/d4e75669-89a4-42cf-8983-79e837e3db56.svg",
+    "dark": "https://media.brand.dev/d4e75669-89a4-42cf-8983-79e837e3db56.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/bitwarden/server"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/bitwarden/server"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Overview",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Getting Started",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "introduction",
+              "architecture",
+              "quickstart"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Deployment",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
-            ]
-          },
-          {
-            "group": "Writing content",
-            "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "deployment/docker",
+              "deployment/configuration",
+              "deployment/database-setup",
+              "deployment/ssl-certificates",
+              "deployment/environment-variables"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "Services",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Services",
             "pages": [
-              "api-reference/introduction"
+              "services/api",
+              "services/identity",
+              "services/admin",
+              "services/notifications",
+              "services/events"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Enterprise Services",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "services/scim",
+              "services/sso",
+              "services/billing"
+            ]
+          },
+          {
+            "group": "Supporting Services",
+            "pages": [
+              "services/events-processor",
+              "services/icons"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/authentication/overview",
+              "api/authentication/accounts",
+              "api/authentication/auth-requests",
+              "api/authentication/two-factor"
+            ]
+          },
+          {
+            "group": "Vault",
+            "pages": [
+              "api/vault/ciphers",
+              "api/vault/folders",
+              "api/vault/collections",
+              "api/vault/sync"
+            ]
+          },
+          {
+            "group": "Organizations",
+            "pages": [
+              "api/organizations/management",
+              "api/organizations/users",
+              "api/organizations/groups",
+              "api/organizations/policies"
+            ]
+          },
+          {
+            "group": "Secrets Manager",
+            "pages": [
+              "api/secrets-manager/overview",
+              "api/secrets-manager/secrets",
+              "api/secrets-manager/projects",
+              "api/secrets-manager/service-accounts"
+            ]
+          },
+          {
+            "group": "Public API",
+            "pages": [
+              "api/public/overview",
+              "api/public/members",
+              "api/public/groups",
+              "api/public/policies"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "development/local-setup",
+              "development/database-migrations",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/project-structure",
+              "development/core-concepts",
+              "development/data-models",
+              "development/repositories"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contribution-guide",
+              "development/code-style",
+              "development/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Operations",
+        "groups": [
+          {
+            "group": "Monitoring",
+            "pages": [
+              "operations/health-checks",
+              "operations/logging",
+              "operations/metrics"
+            ]
+          },
+          {
+            "group": "Maintenance",
+            "pages": [
+              "operations/backup-restore",
+              "operations/updates",
+              "operations/troubleshooting"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "operations/security-best-practices",
+              "operations/encryption",
+              "operations/compliance"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,330 @@
+---
+title: "Accounts API"
+description: "Manage user accounts, profiles, and account settings"
+---
+
+## Get User Profile
+
+Retrieve the authenticated user's profile information.
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/accounts/profile" \
+  -H "Authorization: Bearer {access_token}"
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.bitwarden.com/accounts/profile', {
+  headers: {
+    'Authorization': `Bearer ${accessToken}`
+  }
+});
+const profile = await response.json();
+```
+</CodeGroup>
+
+### Response
+
+<ResponseField name="id" type="string" required>
+  User's unique identifier
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  User's display name
+</ResponseField>
+
+<ResponseField name="email" type="string" required>
+  User's email address
+</ResponseField>
+
+<ResponseField name="twoFactorEnabled" type="boolean" required>
+  Whether two-factor authentication is enabled
+</ResponseField>
+
+<ResponseField name="premium" type="boolean" required>
+  Whether user has premium features
+</ResponseField>
+
+<ResponseField name="organizations" type="array">
+  List of organizations the user belongs to
+</ResponseField>
+
+---
+
+## Update Profile
+
+Update the authenticated user's profile information.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "https://api.bitwarden.com/accounts/profile" \
+  -H "Authorization: Bearer {access_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "masterPasswordHint": "My favorite password hint"
+  }'
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="name" type="string">
+  User's display name
+</ParamField>
+
+<ParamField body="masterPasswordHint" type="string">
+  Master password hint
+</ParamField>
+
+---
+
+## Get Organizations
+
+Retrieve all organizations for the authenticated user.
+
+```bash
+GET /accounts/organizations
+```
+
+### Response
+
+Returns a list of organizations with membership details including role, permissions, and status.
+
+---
+
+## Change Email
+
+Initiate an email change request for the authenticated user.
+
+### Step 1: Request Email Token
+
+```bash
+POST /accounts/email-token
+```
+
+<ParamField body="newEmail" type="string" required>
+  New email address
+</ParamField>
+
+<ParamField body="masterPasswordHash" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+### Step 2: Confirm Email Change
+
+```bash
+POST /accounts/email
+```
+
+<ParamField body="newEmail" type="string" required>
+  New email address
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  Verification token from email
+</ParamField>
+
+<ParamField body="newMasterPasswordHash" type="string" required>
+  New master password hash
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Encryption key
+</ParamField>
+
+---
+
+## Change Password
+
+Change the master password for the authenticated user.
+
+```bash
+POST /accounts/password
+```
+
+<ParamField body="masterPasswordHash" type="string" required>
+  Current master password hash
+</ParamField>
+
+<ParamField body="newMasterPasswordHash" type="string" required>
+  New master password hash
+</ParamField>
+
+<ParamField body="masterPasswordHint" type="string">
+  Optional password hint
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  Encryption key
+</ParamField>
+
+---
+
+## Set Initial Password
+
+Set the master password for accounts created without one (e.g., SSO users).
+
+```bash
+POST /accounts/set-password
+```
+
+<ParamField body="masterPasswordHash" type="string" required>
+  New master password hash
+</ParamField>
+
+<ParamField body="key" type="string" required>
+  User encryption key
+</ParamField>
+
+<ParamField body="keys" type="object">
+  User key pairs for encryption
+</ParamField>
+
+---
+
+## Update KDF Settings
+
+Update Key Derivation Function settings for the account.
+
+```bash
+POST /accounts/kdf
+```
+
+<ParamField body="masterPasswordHash" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+<ParamField body="authenticationData" type="object" required>
+  Authentication KDF configuration
+</ParamField>
+
+<ParamField body="unlockData" type="object" required>
+  Unlock KDF configuration
+</ParamField>
+
+---
+
+## Get/Set Encryption Keys
+
+### Get Keys
+
+```bash
+GET /accounts/keys
+```
+
+Returns the user's cryptographic keys including public key and private key.
+
+### Set Keys
+
+```bash
+POST /accounts/keys
+```
+
+<ParamField body="publicKey" type="string" required>
+  RSA public key
+</ParamField>
+
+<ParamField body="encryptedPrivateKey" type="string" required>
+  Encrypted RSA private key
+</ParamField>
+
+---
+
+## Get API Key
+
+Retrieve the user's API key for programmatic access.
+
+```bash
+POST /accounts/api-key
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash or OTP for verification
+</ParamField>
+
+### Response
+
+<ResponseField name="apiKey" type="string">
+  The user's API key
+</ResponseField>
+
+<ResponseField name="clientId" type="string">
+  OAuth client ID for API access
+</ResponseField>
+
+---
+
+## Rotate API Key
+
+Generate a new API key, invalidating the old one.
+
+```bash
+POST /accounts/rotate-api-key
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+---
+
+## Delete Account
+
+Permanently delete the user account.
+
+```bash
+DELETE /accounts
+```
+
+<ParamField body="secret" type="string" required>
+  Master password hash for verification
+</ParamField>
+
+<Warning>
+This action cannot be undone. All vault data will be permanently deleted.
+</Warning>
+
+---
+
+## Password Hint
+
+Request a password hint to be sent to the user's email.
+
+```bash
+POST /accounts/password-hint
+```
+
+<ParamField body="email" type="string" required>
+  Email address associated with the account
+</ParamField>
+
+<Note>
+This endpoint does not require authentication and can be called anonymously.
+</Note>
+
+---
+
+## Verify Email
+
+### Send Verification Email
+
+```bash
+POST /accounts/verify-email
+```
+
+Sends a verification email to the user's registered email address.
+
+### Confirm Email Verification
+
+```bash
+POST /accounts/verify-email-token
+```
+
+<ParamField body="userId" type="string" required>
+  User ID
+</ParamField>
+
+<ParamField body="token" type="string" required>
+  Verification token from email
+</ParamField>

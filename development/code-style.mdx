@@ -1,0 +1,654 @@
+---
+title: Code Style Guide
+description: Code style and formatting guidelines for Bitwarden Server
+---
+
+Bitwarden Server follows consistent code style guidelines enforced through EditorConfig and automated formatting tools.
+
+## EditorConfig
+
+The project uses `.editorconfig` to maintain consistent coding styles:
+
+```ini .editorconfig
+# Top-most EditorConfig file
+root = true
+
+# All files
+[*]
+indent_style = space
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+guidelines = 120  # Line length guideline
+
+# C# files
+[*.{cs,csx}]
+indent_size = 4
+charset = utf-8-bom
+
+# Project files
+[*.{csproj,vbproj,vcxproj}]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+```
+
+## Automatic Formatting
+
+### dotnet format
+
+The project uses `dotnet format` for automatic code formatting.
+
+**Run formatting manually**:
+```bash
+dotnet format
+```
+
+**Enable pre-commit hook**:
+```bash
+git config --local core.hooksPath .git-hooks
+```
+
+This automatically formats code before each commit.
+
+### IDE Integration
+
+**Visual Studio Code**:
+- Install C# Dev Kit extension
+- Format on save is configured in `.vscode/settings.json`
+
+**Visual Studio / Rider**:
+- EditorConfig is automatically detected
+- Use built-in formatter (Ctrl+K, Ctrl+D)
+
+## C# Coding Conventions
+
+### Naming Conventions
+
+#### PascalCase
+
+Use PascalCase for:
+- Classes
+- Interfaces (with `I` prefix)
+- Methods
+- Properties
+- Events
+- Enums and enum values
+- Constants
+
+```csharp
+public class UserService : IUserService
+{
+    public async Task<User> GetUserByIdAsync(Guid userId) { }
+    public string UserName { get; set; }
+    public event EventHandler UserCreated;
+    
+    public const int MaxRetries = 3;
+}
+
+public enum UserType
+{
+    Standard,
+    Admin,
+    Owner
+}
+```
+
+#### camelCase
+
+Use camelCase for:
+- Private fields (with `_` prefix)
+- Method parameters
+- Local variables
+
+```csharp
+public class UserRepository
+{
+    private readonly IDbConnection _connection;
+    private readonly ILogger<UserRepository> _logger;
+    
+    public async Task<User> GetByEmailAsync(string emailAddress)
+    {
+        var normalizedEmail = emailAddress.ToLowerInvariant();
+        return await QueryAsync(normalizedEmail);
+    }
+}
+```
+
+#### Interface Naming
+
+Interfaces start with `I`:
+
+```csharp
+public interface IUserRepository { }
+public interface IUserService { }
+public interface IMailService { }
+```
+
+#### Async Method Naming
+
+Async methods end with `Async`:
+
+```csharp
+// Good
+public async Task<User> GetUserAsync(Guid id) { }
+public async Task SaveUserAsync(User user) { }
+
+// Bad
+public async Task<User> GetUser(Guid id) { }  // Missing Async suffix
+```
+
+### Code Organization
+
+#### File-Scoped Namespaces
+
+Use file-scoped namespaces (C# 10+):
+
+```csharp
+// Good: File-scoped namespace
+namespace Bit.Core.Entities;
+
+public class User : ITableObject<Guid>
+{
+    // Class implementation
+}
+```
+
+```csharp
+// Bad: Block-scoped namespace (don't use)
+namespace Bit.Core.Entities
+{
+    public class User : ITableObject<Guid>
+    {
+        // Extra indentation level
+    }
+}
+```
+
+#### Using Directives
+
+Sort `using` directives with `System.*` first:
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Bit.Core.Entities;
+using Bit.Core.Enums;
+using Bit.Core.Repositories;
+using Microsoft.AspNetCore.Mvc;
+```
+
+Remove unused using directives (enforced by IDE0005 warning).
+
+#### Member Ordering
+
+Order class members:
+
+1. Fields (private, then protected)
+2. Constructors
+3. Properties (public, then protected/private)
+4. Methods (public, then protected/private)
+5. Nested types
+
+```csharp
+public class UserService : IUserService
+{
+    // 1. Fields
+    private readonly IUserRepository _userRepository;
+    private readonly ILogger<UserService> _logger;
+    
+    // 2. Constructor
+    public UserService(
+        IUserRepository userRepository,
+        ILogger<UserService> logger)
+    {
+        _userRepository = userRepository;
+        _logger = logger;
+    }
+    
+    // 3. Properties
+    public bool IsInitialized { get; private set; }
+    
+    // 4. Public methods
+    public async Task<User> GetUserAsync(Guid id)
+    {
+        return await _userRepository.GetByIdAsync(id);
+    }
+    
+    // 5. Private methods
+    private void LogOperation(string operation)
+    {
+        _logger.LogInformation("Operation: {Operation}", operation);
+    }
+}
+```
+
+### Language Features
+
+#### var Keyword
+
+Prefer `var` when the type is obvious:
+
+```csharp
+// Good: Type is obvious from right side
+var user = new User();
+var users = await _repository.GetAllAsync();
+var count = users.Count();
+
+// Acceptable: Explicit type for clarity
+IUserRepository repository = GetRepository();
+```
+
+#### String Interpolation
+
+Use string interpolation over concatenation:
+
+```csharp
+// Good
+var message = $"User {user.Email} created at {user.CreationDate}";
+
+// Bad
+var message = "User " + user.Email + " created at " + user.CreationDate;
+```
+
+**Important**: Specify culture for formatting:
+
+```csharp
+// Good: Culture specified
+var formatted = string.Format(CultureInfo.InvariantCulture, 
+    "Price: {0:C}", price);
+
+// Bad: Culture not specified (triggers CA1304, CA1305 warnings)
+var formatted = string.Format("Price: {0:C}", price);
+```
+
+#### Null Handling
+
+**Null-conditional operators**:
+```csharp
+// Good
+var email = user?.Email?.ToLowerInvariant();
+
+// Bad
+var email = user != null && user.Email != null 
+    ? user.Email.ToLowerInvariant() 
+    : null;
+```
+
+**Null-coalescing operators**:
+```csharp
+// Good
+var name = user.Name ?? "Unknown";
+var count = users?.Count ?? 0;
+
+// Use ??= for assignment
+user.Name ??= "Default Name";
+```
+
+**Nullable reference types**:
+```csharp
+#nullable enable
+
+public class User
+{
+    public string Email { get; set; } = null!;  // Non-nullable
+    public string? Name { get; set; }           // Nullable
+}
+```
+
+#### Pattern Matching
+
+Use pattern matching where appropriate:
+
+```csharp
+// Good
+if (obj is User user)
+{
+    Console.WriteLine(user.Email);
+}
+
+// Switch expressions
+var typeName = cipherType switch
+{
+    CipherType.Login => "Login",
+    CipherType.SecureNote => "Secure Note",
+    CipherType.Card => "Card",
+    CipherType.Identity => "Identity",
+    _ => throw new ArgumentException("Unknown cipher type")
+};
+```
+
+### Braces and Formatting
+
+#### Brace Style
+
+Always use braces, even for single-line statements:
+
+```csharp
+// Good
+if (user == null)
+{
+    throw new NotFoundException();
+}
+
+// Bad
+if (user == null)
+    throw new NotFoundException();
+```
+
+Opening braces on new line (Allman style):
+
+```csharp
+public async Task<User> GetUserAsync(Guid id)
+{
+    if (id == Guid.Empty)
+    {
+        throw new BadRequestException("Invalid user ID");
+    }
+    
+    return await _repository.GetByIdAsync(id);
+}
+```
+
+#### Line Length
+
+Keep lines under **120 characters** (guideline, not strict rule).
+
+Break long lines at logical points:
+
+```csharp
+// Good: Broken at logical points
+var user = await _userRepository.GetByEmailAsync(
+    emailAddress.ToLowerInvariant().Trim());
+
+// Method with many parameters
+public async Task<Organization> CreateOrganizationAsync(
+    string name,
+    string billingEmail,
+    PlanType planType,
+    int seats,
+    bool premium)
+{
+    // Implementation
+}
+```
+
+### Comments and Documentation
+
+#### XML Documentation
+
+Add XML comments for public APIs:
+
+```csharp
+/// <summary>
+/// Retrieves a user by their unique identifier.
+/// </summary>
+/// <param name="userId">The user's unique identifier.</param>
+/// <returns>The user if found; null otherwise.</returns>
+/// <exception cref="BadRequestException">Thrown when userId is empty.</exception>
+public async Task<User?> GetUserByIdAsync(Guid userId)
+{
+    if (userId == Guid.Empty)
+    {
+        throw new BadRequestException("User ID cannot be empty.");
+    }
+    
+    return await _userRepository.GetByIdAsync(userId);
+}
+```
+
+#### Inline Comments
+
+Use inline comments to explain "why", not "what":
+
+```csharp
+// Good: Explains why
+// U2F is deprecated and all keys should be migrated to WebAuthn.
+// Remove U2F providers to prevent authentication issues.
+_twoFactorProviders?.Remove(TwoFactorProviderType.U2f);
+
+// Bad: States the obvious
+// Remove U2F from the dictionary
+_twoFactorProviders?.Remove(TwoFactorProviderType.U2f);
+```
+
+#### TODO Comments
+
+```csharp
+// TODO: Implement caching for frequently accessed users
+// FIXME: This method doesn't handle concurrent updates correctly
+// HACK: Temporary workaround until API v3 is released
+```
+
+Include issue numbers when applicable:
+```csharp
+// TODO: Remove this after migration to v2 encryption (BW-1234)
+```
+
+### Error Handling
+
+#### Exceptions
+
+Use specific exception types:
+
+```csharp
+// Good: Specific exceptions
+if (string.IsNullOrWhiteSpace(email))
+{
+    throw new BadRequestException("Email is required.");
+}
+
+if (user == null)
+{
+    throw new NotFoundException("User not found.");
+}
+
+if (!await CanAccessAsync(userId, organizationId))
+{
+    throw new UnauthorizedException();
+}
+
+// Bad: Generic exceptions
+throw new Exception("Something went wrong");
+```
+
+#### Try-Catch
+
+Catch specific exceptions when possible:
+
+```csharp
+// Good
+try
+{
+    return JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+}
+catch (JsonException ex)
+{
+    _logger.LogWarning(ex, "Failed to deserialize JSON");
+    return null;
+}
+
+// Avoid catching all exceptions
+try
+{
+    // Code
+}
+catch (Exception ex)  // Too broad
+{
+    // Handle
+}
+```
+
+### Async/Await
+
+#### Async All the Way
+
+```csharp
+// Good: Async all the way
+public async Task<User> GetUserAsync(Guid id)
+{
+    return await _repository.GetByIdAsync(id);
+}
+
+// Bad: Blocking on async code
+public User GetUser(Guid id)
+{
+    return _repository.GetByIdAsync(id).Result;  // Don't do this!
+}
+```
+
+#### ConfigureAwait
+
+Library code should use `ConfigureAwait(false)` (though not strictly enforced):
+
+```csharp
+var user = await _repository.GetByIdAsync(id).ConfigureAwait(false);
+```
+
+## LINQ and Collections
+
+### LINQ Style
+
+```csharp
+// Method syntax (preferred for simple queries)
+var activeUsers = users.Where(u => u.Enabled).ToList();
+
+// Query syntax (for complex queries with multiple operations)
+var result = from user in users
+             where user.Enabled
+             join org in organizations on user.Id equals org.UserId
+             select new { user.Email, org.Name };
+```
+
+### Collection Initialization
+
+```csharp
+// Good: Collection initializers
+var userTypes = new List<UserType>
+{
+    UserType.Owner,
+    UserType.Admin,
+    UserType.User
+};
+
+var settings = new Dictionary<string, string>
+{
+    ["timeout"] = "30",
+    ["retries"] = "3"
+};
+```
+
+## Testing Code Style
+
+### Test Naming
+
+Format: `MethodName_Scenario_ExpectedOutcome`
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task GetUserAsync_ValidId_ReturnsUser(
+    SutProvider<UserService> sutProvider,
+    User user)
+{
+    // Arrange
+    sutProvider.GetDependency<IUserRepository>()
+        .GetByIdAsync(user.Id)
+        .Returns(user);
+    
+    // Act
+    var result = await sutProvider.Sut.GetUserAsync(user.Id);
+    
+    // Assert
+    Assert.Equal(user.Id, result.Id);
+}
+
+[Theory]
+[BitAutoData]
+public async Task GetUserAsync_InvalidId_ThrowsNotFoundException(
+    SutProvider<UserService> sutProvider)
+{
+    // Arrange
+    sutProvider.GetDependency<IUserRepository>()
+        .GetByIdAsync(Arg.Any<Guid>())
+        .Returns((User?)null);
+    
+    // Act & Assert
+    await Assert.ThrowsAsync<NotFoundException>(
+        () => sutProvider.Sut.GetUserAsync(Guid.NewGuid()));
+}
+```
+
+### Arrange-Act-Assert
+
+Always structure tests with clear AAA sections:
+
+```csharp
+[Theory]
+[BitAutoData]
+public async Task TestMethod(
+    SutProvider<Service> sutProvider)
+{
+    // Arrange - Set up test data and mocks
+    var input = new Input();
+    sutProvider.GetDependency<IDependency>()
+        .MethodAsync()
+        .Returns(expectedValue);
+    
+    // Act - Execute the method under test
+    var result = await sutProvider.Sut.MethodUnderTest(input);
+    
+    // Assert - Verify the outcome
+    Assert.NotNull(result);
+    Assert.Equal(expectedValue, result.Value);
+}
+```
+
+## Common Analyzer Rules
+
+The project enforces several code analysis rules:
+
+### CA1304 & CA1305: Specify CultureInfo
+
+```csharp
+// Good: Culture specified
+var lower = text.ToLower(CultureInfo.InvariantCulture);
+var formatted = string.Format(CultureInfo.InvariantCulture, "Value: {0}", value);
+
+// Bad: Culture not specified
+var lower = text.ToLower();  // Warning CA1304
+var formatted = string.Format("Value: {0}", value);  // Warning CA1305
+```
+
+### IDE0005: Remove Unnecessary Usings
+
+```csharp
+// All using directives must be used
+using System;  // Used
+using System.Linq;  // Used
+using System.Collections.Generic;  // Must be used or removed
+```
+
+### CS8509: Missing Switch Case
+
+```csharp
+// All enum values must be handled
+var result = status switch
+{
+    UserStatus.Active => "Active",
+    UserStatus.Inactive => "Inactive",
+    UserStatus.Suspended => "Suspended",
+    _ => throw new ArgumentException("Unknown status")  // Handle unknown values
+};
+```
+
+## See Also
+
+- [Contribution Guide](/development/contribution-guide) - How to contribute
+- [Testing Guide](/development/testing) - Testing standards
+- [EditorConfig Documentation](https://editorconfig.org/)

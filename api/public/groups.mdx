@@ -1,0 +1,444 @@
+---
+title: "Public Groups API"
+description: "Manage organization groups via the Public API"
+---
+
+## Overview
+
+The Public Groups API enables programmatic management of organization groups for access control.
+
+<Info>
+Groups are only available on Teams and Enterprise plans.
+</Info>
+
+## List Groups
+
+Retrieve all groups in the organization.
+
+```bash
+GET /public/groups
+```
+
+### Response
+
+<ResponseField name="object" type="string">
+  Always "list"
+</ResponseField>
+
+<ResponseField name="data" type="array" required>
+  Array of group objects
+</ResponseField>
+
+### Group Object
+
+<ResponseField name="id" type="string" required>
+  Group unique identifier
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  Group name
+</ResponseField>
+
+<ResponseField name="externalId" type="string">
+  External identifier for directory sync
+</ResponseField>
+
+<ResponseField name="collections" type="array">
+  Collection access assignments
+</ResponseField>
+
+---
+
+## Get Group
+
+Retrieve details of a specific group.
+
+```bash
+GET /public/groups/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X GET "https://api.bitwarden.com/public/groups/{id}" \
+  -H "Authorization: Bearer {org_api_token}"
+```
+
+```javascript JavaScript
+const group = await fetch(
+  `https://api.bitwarden.com/public/groups/${groupId}`,
+  {
+    headers: {
+      'Authorization': `Bearer ${orgToken}`
+    }
+  }
+).then(r => r.json());
+```
+</CodeGroup>
+
+---
+
+## Get Group Member IDs
+
+Retrieve all member IDs in a group.
+
+```bash
+GET /public/groups/{id}/member-ids
+```
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Response
+
+Returns an array of organization user IDs:
+
+```json
+[
+  "member-guid-1",
+  "member-guid-2"
+]
+```
+
+---
+
+## Create Group
+
+Create a new group.
+
+<CodeGroup>
+```bash cURL
+curl -X POST "https://api.bitwarden.com/public/groups" \
+  -H "Authorization: Bearer {org_api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Engineering Team",
+    "externalId": "eng_team_001",
+    "collections": [
+      {
+        "id": "collection-guid",
+        "readOnly": false,
+        "hidePasswords": false
+      }
+    ]
+  }'
+```
+
+```javascript JavaScript
+const group = await fetch(
+  'https://api.bitwarden.com/public/groups',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'DevOps Team',
+      collections: [
+        {id: prodCollectionId, readOnly: true}
+      ]
+    })
+  }
+).then(r => r.json());
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'https://api.bitwarden.com/public/groups',
+    headers={'Authorization': f'Bearer {org_token}'},
+    json={
+        'name': 'QA Team',
+        'externalId': 'qa_team',
+        'collections': [
+            {'id': collection_id, 'readOnly': False}
+        ]
+    }
+)
+group = response.json()
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="name" type="string" required>
+  Group name
+</ParamField>
+
+<ParamField body="externalId" type="string">
+  External identifier for directory sync (LDAP/SCIM)
+</ParamField>
+
+<ParamField body="collections" type="array" required>
+  Collection access assignments
+</ParamField>
+
+### Collection Assignment
+
+<ParamField body="id" type="string" required>
+  Collection ID
+</ParamField>
+
+<ParamField body="readOnly" type="boolean" default="false">
+  Read-only access
+</ParamField>
+
+<ParamField body="hidePasswords" type="boolean" default="false">
+  Hide password fields
+</ParamField>
+
+---
+
+## Update Group
+
+Update an existing group.
+
+```bash
+PUT /public/groups/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+### Request Body
+
+Provide complete group object with all fields.
+
+<CodeGroup>
+```bash cURL
+curl -X PUT "https://api.bitwarden.com/public/groups/{id}" \
+  -H "Authorization: Bearer {org_api_token}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Engineering - Updated",
+    "collections": [
+      {
+        "id": "collection-guid-1",
+        "readOnly": false
+      },
+      {
+        "id": "collection-guid-2",
+        "readOnly": true
+      }
+    ]
+  }'
+```
+
+```javascript JavaScript
+await fetch(
+  `https://api.bitwarden.com/public/groups/${groupId}`,
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      name: 'Updated Group Name',
+      collections: [...] // Complete list
+    })
+  }
+);
+```
+</CodeGroup>
+
+<Warning>
+Provide the complete collections array. Any collections not included will be removed from the group.
+</Warning>
+
+---
+
+## Update Group Member IDs
+
+Update which members belong to a group.
+
+```bash
+PUT /public/groups/{id}/member-ids
+```
+
+<ParamField path="id" type="string" required>
+  Group ID
+</ParamField>
+
+<ParamField body="memberIds" type="array" required>
+  Complete array of organization user IDs
+</ParamField>
+
+```json
+{
+  "memberIds": [
+    "member-guid-1",
+    "member-guid-2",
+    "member-guid-3"
+  ]
+}
+```
+
+---
+
+## Delete Group
+
+Permanently delete a group.
+
+```bash
+DELETE /public/groups/{id}
+```
+
+<ParamField path="id" type="string" required>
+  Group ID to delete
+</ParamField>
+
+<CodeGroup>
+```bash cURL
+curl -X DELETE "https://api.bitwarden.com/public/groups/{id}" \
+  -H "Authorization: Bearer {org_api_token}"
+```
+
+```javascript JavaScript
+await fetch(
+  `https://api.bitwarden.com/public/groups/${groupId}`,
+  {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${orgToken}`
+    }
+  }
+);
+```
+</CodeGroup>
+
+<Info>
+Deleting a group removes members from the group but doesn't delete the members themselves.
+</Info>
+
+---
+
+## Use Cases
+
+### Sync from Active Directory
+
+```python
+import ldap
+import requests
+
+# Connect to AD
+ldap_conn = ldap.initialize('ldap://dc.company.com')
+ldap_conn.simple_bind_s('admin@company.com', 'password')
+
+# Get AD groups
+result = ldap_conn.search_s(
+    'OU=Groups,DC=company,DC=com',
+    ldap.SCOPE_SUBTREE,
+    '(objectClass=group)'
+)
+
+for dn, attrs in result:
+    group_name = attrs['cn'][0].decode()
+    external_id = attrs['distinguishedName'][0].decode()
+    
+    # Create in Bitwarden
+    requests.post(
+        'https://api.bitwarden.com/public/groups',
+        headers={'Authorization': f'Bearer {org_token}'},
+        json={
+            'name': group_name,
+            'externalId': external_id,
+            'collections': []
+        }
+    )
+```
+
+### Automated Team Setup
+
+```javascript
+// Create groups for new team
+const teams = ['Engineering', 'Product', 'Design'];
+const groupIds = {};
+
+for (const team of teams) {
+  const response = await fetch(
+    'https://api.bitwarden.com/public/groups',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${orgToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: team,
+        collections: [
+          {id: teamCollections[team], readOnly: false}
+        ]
+      })
+    }
+  );
+  
+  const group = await response.json();
+  groupIds[team] = group.id;
+}
+
+// Assign members to groups
+const memberAssignments = {
+  'user1@company.com': ['Engineering'],
+  'user2@company.com': ['Product', 'Design'],
+  'user3@company.com': ['Engineering', 'Product']
+};
+
+for (const [email, teams] of Object.entries(memberAssignments)) {
+  // Find member by email
+  const members = await fetch(
+    'https://api.bitwarden.com/public/members',
+    {headers: {'Authorization': `Bearer ${orgToken}`}}
+  ).then(r => r.json());
+  
+  const member = members.data.find(m => m.email === email);
+  if (member) {
+    // Update member's groups
+    const groupIdsForMember = teams.map(t => groupIds[t]);
+    await fetch(
+      `https://api.bitwarden.com/public/members/${member.id}/group-ids`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${orgToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({groupIds: groupIdsForMember})
+      }
+    );
+  }
+}
+```
+
+### Audit Group Membership
+
+```bash
+#!/bin/bash
+
+# Generate report of all groups and members
+
+GROUPS=$(curl -s "https://api.bitwarden.com/public/groups" \
+  -H "Authorization: Bearer $ORG_API_TOKEN")
+
+echo "Group Membership Report"
+echo "======================"
+echo ""
+
+echo $GROUPS | jq -r '.data[] | .id' | while read GROUP_ID; do
+  GROUP_NAME=$(echo $GROUPS | jq -r ".data[] | select(.id==\"$GROUP_ID\") | .name")
+  
+  MEMBERS=$(curl -s "https://api.bitwarden.com/public/groups/${GROUP_ID}/member-ids" \
+    -H "Authorization: Bearer $ORG_API_TOKEN")
+  
+  MEMBER_COUNT=$(echo $MEMBERS | jq '. | length')
+  
+  echo "$GROUP_NAME: $MEMBER_COUNT members"
+done
+```
