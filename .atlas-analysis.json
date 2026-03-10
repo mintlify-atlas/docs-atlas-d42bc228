@@ -1,0 +1,211 @@
+{
+  "projectType": "infrastructure",
+  "projectName": "Bitwarden Server",
+  "projectDescription": "Backend infrastructure and APIs for the Bitwarden password management platform",
+  "theme": "aspen",
+  "primaryColor": "#175edc",
+  "lightColor": "#84acec",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Overview",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "architecture",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/configuration",
+              "deployment/database-setup",
+              "deployment/ssl-certificates",
+              "deployment/environment-variables"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Services",
+        "groups": [
+          {
+            "group": "Core Services",
+            "pages": [
+              "services/api",
+              "services/identity",
+              "services/admin",
+              "services/notifications",
+              "services/events"
+            ]
+          },
+          {
+            "group": "Enterprise Services",
+            "pages": [
+              "services/scim",
+              "services/sso",
+              "services/billing"
+            ]
+          },
+          {
+            "group": "Supporting Services",
+            "pages": [
+              "services/events-processor",
+              "services/icons"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/authentication/overview",
+              "api/authentication/accounts",
+              "api/authentication/auth-requests",
+              "api/authentication/two-factor"
+            ]
+          },
+          {
+            "group": "Vault",
+            "pages": [
+              "api/vault/ciphers",
+              "api/vault/folders",
+              "api/vault/collections",
+              "api/vault/sync"
+            ]
+          },
+          {
+            "group": "Organizations",
+            "pages": [
+              "api/organizations/management",
+              "api/organizations/users",
+              "api/organizations/groups",
+              "api/organizations/policies"
+            ]
+          },
+          {
+            "group": "Secrets Manager",
+            "pages": [
+              "api/secrets-manager/overview",
+              "api/secrets-manager/secrets",
+              "api/secrets-manager/projects",
+              "api/secrets-manager/service-accounts"
+            ]
+          },
+          {
+            "group": "Public API",
+            "pages": [
+              "api/public/overview",
+              "api/public/members",
+              "api/public/groups",
+              "api/public/policies"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "development/local-setup",
+              "development/database-migrations",
+              "development/testing"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/project-structure",
+              "development/core-concepts",
+              "development/data-models",
+              "development/repositories"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contribution-guide",
+              "development/code-style",
+              "development/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Operations",
+        "groups": [
+          {
+            "group": "Monitoring",
+            "pages": [
+              "operations/health-checks",
+              "operations/logging",
+              "operations/metrics"
+            ]
+          },
+          {
+            "group": "Maintenance",
+            "pages": [
+              "operations/backup-restore",
+              "operations/updates",
+              "operations/troubleshooting"
+            ]
+          },
+          {
+            "group": "Security",
+            "pages": [
+              "operations/security-best-practices",
+              "operations/encryption",
+              "operations/compliance"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-service microarchitecture for password management backend",
+    "RESTful API with comprehensive vault, organization, and user management",
+    "Enterprise SSO and SCIM provisioning support",
+    "Secrets Manager for developer credentials and API keys",
+    "Docker-based deployment with multi-database support (SQL Server, PostgreSQL, MySQL)",
+    "End-to-end encryption with zero-knowledge architecture",
+    "Real-time notifications via SignalR",
+    "Event logging and auditing system",
+    "Multi-tenant organization management with role-based access control"
+  ],
+  "publicApiSurface": [
+    "POST /identity/connect/token - Authentication",
+    "GET /accounts/profile - User profile",
+    "POST /accounts/register - User registration",
+    "GET /ciphers - List vault items",
+    "POST /ciphers - Create vault item",
+    "PUT /ciphers/{id} - Update vault item",
+    "DELETE /ciphers/{id} - Delete vault item",
+    "GET /sync - Sync vault data",
+    "GET /organizations/{id} - Get organization",
+    "POST /organizations - Create organization",
+    "GET /organizations/{id}/users - List organization users",
+    "POST /organizations/{id}/users/invite - Invite user",
+    "GET /collections - List collections",
+    "POST /collections - Create collection",
+    "GET /api/public/members - Public API: List members",
+    "POST /api/public/members - Public API: Create member",
+    "GET /secrets-manager/secrets - List secrets",
+    "POST /secrets-manager/secrets - Create secret",
+    "GET /secrets-manager/projects - List projects",
+    "POST /secrets-manager/service-accounts - Create service account",
+    "POST /two-factor/get-authenticator - Get 2FA authenticator",
+    "GET /folders - List folders",
+    "POST /emergency-access - Emergency access requests"
+  ]
+}
